@@ -67,7 +67,7 @@ my $app =
         $p = $h->page($h->h2('Top News').news_list_to_html($news));
       }
       when ('/latest') {
-        $h->set_title("Latest News - ".$cfg->{SiteName});
+        $h->set_title('Latest News - '.$cfg->{SiteName});
         my $news = get_latest_news();
         $p = $h->page($h->h2('Latest news').news_list_to_html($news));
       }
@@ -76,6 +76,15 @@ my $app =
       }
       when (qr!^/news/(\d+)$!) {
         $p = news($1);
+      }
+      when (qr!^/saved/(\d+)$!) {
+        $p = saved($1);
+      }
+      when (qr!^/editnews/(\d+)$!) {
+        $p = editnews($1);
+      }
+      when (qr!^/user/(.+)$!) {
+        $p = user($1);
       }
       when ('/login') {
         $p = login();
@@ -89,40 +98,50 @@ my $app =
       when ('/api/logout') { # TODO: post
         $p = api_logout();
       }
+      when ('/api/updateprofile') { # TODO: post
+        $p = api_updateprofile();
+      }
+      when ('/api/create_account') { # TODO: post
+        $p = api_create_account();
+      }
+      when ('/api/submit') { # TODO: post
+        $p = api_submit();
+      }
+      when ('/api/votenews') { # TODO: post
+        $p = api_votenews();
+      }
+      when ('/api/postcomment') { # TODO: post
+        $p = api_postcomment();
+      }
       when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
         my $ct = $ct{$1};
         if (/\.\./ or !defined $ct) {
-          return [ 404, ['Content-Type' => 'text/plain'], ["Not found"] ]
+          return return_error('Not found');
         } else {
-          open my $fh, 'public'.$_ or
-            return [ 404, ['Content-Type' => 'text/plain'], ["Not found"] ];
-          return [ 200, ['Content-Type' => $ct], $fh ]
+          open my $fh, 'public'.$_ or return return_error('Not found');
+          $p = [ 200, ['Content-Type' => $ct], $fh ]
         }
       }
-      default { $p = return_error("Not found"); }
+      default { $p = return_error('Not found'); }
     }
     return $p if (ref $p);
     return [200, [ 'Content-Type' => 'text/html' ], [$p]];
   };
 
-$todo = q~
-get '/saved/:start' do
-    redirect "/login" if !$user
-    start = params[:start].to_i
-    start = 0 if start < 0
-    H.set_title "Saved news - #{SiteName}"
-    news,count = get_saved_news($user['id'],start)
-    paginate = {
-        :start => start,
-        :count => count,
-        :perpage => SavedNewsPerPage,
-        :link => "/saved/$"
-    }
-    H.page {
-        H.h2 {"Your saved news"}+news_list_to_html(news,paginate)
-    }
-end
-~;
+sub saved {
+  my ($start) = @_;
+  return redirect(302, '/login') unless ($user);
+  $start = 0 if ($start < 0);
+  $h->set_title('Saved news - '.$cfg->{SiteName});
+  my ($news, $count) = get_saved_news($user->{'id'}, $start);
+  my %paginate = (
+                  start => $start,
+                  count => $count,
+                  perpage => $cfg->{SavedNewsPerPage},
+                  link => '/saved/$',
+                 );
+  $h->page($h->h2('Your saved news').news_list_to_html($news, \%paginate));
+}
 
 sub login {
   $h->set_title('Login - '.$cfg->{SiteName});
@@ -238,26 +257,26 @@ sub news {
 }
 
 $todo = q~
-get "/reply/:news_id/:comment_id" do
-    redirect "/login" if !$user
-    news = get_news_by_id(params["news_id"])
-    halt(404,"404 - This news does not exist.") if !news
-    comment = Comments.fetch(params["news_id"],params["comment_id"])
-    halt(404,"404 - This comment does not exist.") if !comment
-    user = get_user_by_id(comment["user_id"]) or DeletedUser
-    comment["id"] = params["comment_id"]
+get '/reply/:news_id/:comment_id' do
+    redirect '/login' if !$user
+    news = get_news_by_id(params['news_id'])
+    halt(404,'404 - This news does not exist.') if !news
+    comment = Comments.fetch(params['news_id'],params['comment_id'])
+    halt(404,'404 - This comment does not exist.') if !comment
+    user = get_user_by_id(comment['user_id']) or DeletedUser
+    comment['id'] = params['comment_id']
 
-    H.set_title "Reply to comment - #{SiteName}"
+    H.set_title 'Reply to comment - #{SiteName}'
     H.page {
         news_to_html(news)+
-        comment_to_html(comment,user,params["news_id"])+
-        H.form(:name=>"f") {
-            H.inputhidden(:name => "news_id", :value => news["id"])+
-            H.inputhidden(:name => "comment_id", :value => -1)+
-            H.inputhidden(:name => "parent_id", :value => params["comment_id"])+
-            H.textarea(:name => "comment", :cols => 60, :rows => 10) {}+H.br+
-            H.button(:name => "post_comment", :value => "Reply")
-        }+H.div(:id => "errormsg"){}+
+        comment_to_html(comment,user,params['news_id'])+
+        H.form(name=>'f') {
+            H.inputhidden(name => 'news_id', value => news['id'])+
+            H.inputhidden(name => 'comment_id', value => -1)+
+            H.inputhidden(name => 'parent_id', value => params['comment_id'])+
+            H.textarea(name => 'comment', cols => 60, rows => 10) {}+H.br+
+            H.button(name => 'post_comment', value => 'Reply')
+        }+H.div(id => 'errormsg'){}+
         H.script() {'
             $(function() {
                 $("input[name=post_comment]").click(post_comment);
@@ -266,143 +285,136 @@ get "/reply/:news_id/:comment_id" do
     }
 end
 
-get "/editcomment/:news_id/:comment_id" do
-    redirect "/login" if !$user
-    news = get_news_by_id(params["news_id"])
-    halt(404,"404 - This news does not exist.") if !news
-    comment = Comments.fetch(params["news_id"],params["comment_id"])
-    halt(404,"404 - This comment does not exist.") if !comment
-    user = get_user_by_id(comment["user_id"]) or DeletedUser
-    halt(500,"Permission denied.") if $user['id'].to_i != user['id'].to_i
-    comment["id"] = params["comment_id"]
+get '/editcomment/:news_id/:comment_id' do
+    redirect '/login' if !$user
+    news = get_news_by_id(params['news_id'])
+    halt(404,'404 - This news does not exist.') if !news
+    comment = Comments.fetch(params['news_id'],params['comment_id'])
+    halt(404,'404 - This comment does not exist.') if !comment
+    user = get_user_by_id(comment['user_id']) or DeletedUser
+    halt(500,'Permission denied.') if $user['id'].to_i != user['id'].to_i
+    comment['id'] = params['comment_id']
 
-    H.set_title "Edit comment - #{SiteName}"
+    H.set_title 'Edit comment - #{SiteName}'
     H.page {
         news_to_html(news)+
-        comment_to_html(comment,user,params["news_id"])+
-        H.form(:name=>"f") {
-            H.inputhidden(:name => "news_id", :value => news["id"])+
-            H.inputhidden(:name => "comment_id",:value => params["comment_id"])+
-            H.inputhidden(:name => "parent_id", :value => -1)+
-            H.textarea(:name => "comment", :cols => 60, :rows => 10) {
+        comment_to_html(comment,user,params['news_id'])+
+        H.form(name=>'f') {
+            H.inputhidden(name => 'news_id', value => news['id'])+
+            H.inputhidden(name => 'comment_id',value => params['comment_id'])+
+            H.inputhidden(name => 'parent_id', value => -1)+
+            H.textarea(name => 'comment', cols => 60, rows => 10) {
                 H.entities comment['body']
             }+H.br+
-            H.button(:name => "post_comment", :value => "Edit")
-        }+H.div(:id => "errormsg"){}+
+            H.button(name => 'post_comment', value => 'Edit')
+        }+H.div(id => 'errormsg'){}+
         H.note {
-            "Note: to remove the comment remove all the text and press Edit."
+            'Note: to remove the comment remove all the text and press Edit.'
         }+
         H.script() {'
             $(function() {
                 $("input[name=post_comment]").click(post_comment);
             });
         '}
-    }
-end
-
-get "/editnews/:news_id" do
-    redirect "/login" if !$user
-    news = get_news_by_id(params["news_id"])
-    halt(404,"404 - This news does not exist.") if !news
-    halt(500,"Permission denied.") if $user['id'].to_i != news['user_id'].to_i
-
-    if news_domain(news)
-        text = ""
-    else
-        text = news_text(news)
-        news['url'] = ""
-    end
-    H.set_title "Edit news - #{SiteName}"
-    H.page {
-        news_to_html(news)+
-        H.form(:id => "submitform") {
-            H.form(:name=>"f") {
-                H.inputhidden(:name => "news_id", :value => news['id'])+
-                H.label(:for => "title") {"title"}+
-                H.inputtext(:id => "title", :name => "title", :size => 80,
-                            :value => H.entities(news['title']))+H.br+
-                H.label(:for => "url") {"url"}+H.br+
-                H.inputtext(:id => "url", :name => "url", :size => 60,
-                            :value => H.entities(news['url']))+H.br+
-                "or if you don't have an url type some text"+
-                H.br+
-                H.label(:for => "text") {"text"}+
-                H.textarea(:id => "text", :name => "text", :cols => 60, :rows => 10) {
-                    H.entities(text)
-                }+H.button(:name => "edit_news", :value => "Edit")
-            }
-        }+
-        H.div(:id => "errormsg"){}+
-        H.note {
-            "Note: to remove the news set an empty title."
-        }+
-        H.script() {'
-            $(function() {
-                $("input[name=edit_news]").click(submit);
-            });
-        '}
-    }
-end
-
-get "/user/:username" do
-    user = get_user_by_username(params[:username])
-    halt(404,"Non existing user") if !user
-    posted_news,posted_comments = $r.pipelined {
-        $r.zcard("user.posted:#{user['id']}")
-        $r.zcard("user.comments:#{user['id']}")
-    }
-    H.set_title "#{H.entities user['username']} - #{SiteName}"
-    owner = $user && ($user['id'].to_i == user['id'].to_i)
-    H.page {
-        H.div(:class => "userinfo") {
-            H.span(:class => "avatar") {
-                email = user["email"] || ""
-                digest = Digest::MD5.hexdigest(email)
-                H.img(:src=>"http://gravatar.com/avatar/#{digest}?s=48&d=mm")
-            }+" "+
-            H.h2 {H.entities user['username']}+
-            H.pre {
-                H.entities user['about']
-            }+
-            H.ul {
-                H.li {
-                    H.b {"created "}+
-                    "#{(Time.now.to_i-user['ctime'].to_i)/(3600*24)} days ago"
-                }+
-                H.li {H.b {"karma "}+ "#{user['karma']} points"}+
-                H.li {H.b {"posted news "}+posted_news.to_s}+
-                H.li {H.b {"posted comments "}+posted_comments.to_s}+
-                if owner
-                    H.li {H.a(:href=>"/saved/0") {"saved news"}}
-                else "" end
-            }
-        }+if owner
-            H.br+H.form(:name=>"f") {
-                H.label(:for => "email") {
-                    "email (not visible, used for gravatar)"
-                }+H.br+
-                H.inputtext(:id => "email", :name => "email", :size => 40,
-                            :value => H.entities(user['email']))+H.br+
-                H.label(:for => "password") {
-                    "change password (optional)"
-                }+H.br+
-                H.inputpass(:name => "password", :size => 40)+H.br+
-                H.label(:for => "about") {"about"}+H.br+
-                H.textarea(:id => "about", :name => "about", :cols => 60, :rows => 10){
-                    H.entities(user['about'])
-                }+H.br+
-                H.button(:name => "update_profile", :value => "Update profile")
-            }+
-            H.div(:id => "errormsg"){}+
-            H.script() {'
-                $(function() {
-                    $("input[name=update_profile]").click(update_profile);
-                });
-            '}
-        else "" end
     }
 end
 ~;
+
+sub editnews {
+  my ($news_id) = @_;
+  return redirect(302, '/login') unless ($user);
+
+  my $news = get_news_by_id($news_id);
+  return return_error('404 - This news does not exist.') unless ($news);
+  # TODO: 500 => 403?
+  return return_error('Permission denied.', 500)
+    unless ($user->{'id'} == $news->{'user_id'});
+
+  my $text;
+  if (news_domain($news)) {
+    $text = '';
+  } else {
+    $text = news_text($news);
+    $news->{'url'} = '';
+  }
+
+  $h->set_title('Edit news - '.$cfg->{SiteName});
+  $h->page(
+    news_to_html($news).
+    $h->div(id => 'submitform',
+      $h->form(name => 'f',
+        $h->inputhidden(name => 'news_id', value => $news->{'id'}).
+        $h->label(for => 'title', 'title').
+        $h->inputtext(id => 'title', name => 'title', size => 80,
+                      value => HTMLGen::entities($news->{'title'})).$h->br.
+        $h->label(for => 'url', 'url').$h->br.
+        $h->inputtext(id => 'url', name => 'url', size => 60,
+                      value => HTMLGen::entities($news->{'url'})).$h->br.
+        "or if you don't have an url type some text".
+        $h->br.
+        $h->label(for => 'text', 'text').
+        $h->textarea(id => 'text', name => 'text', cols => 60, rows => 10,
+                     HTMLGen::entities($text)).
+        $h->button(name => 'edit_news', value => 'Edit')
+      )
+    ).
+    $h->div(id => 'errormsg', '').
+    $h->note('Note: to remove the news set an empty title.').
+    $h->script('
+            $(function() {
+                $("input[name=edit_news]").click(submit);
+            });
+        ')
+  );
+}
+
+sub user {
+  my ($username) = @_;
+  my $u = get_user_by_username($username);
+  return return_error('Non existing user', 404) unless ($u);
+  # TODO: pipeline
+  my $posted_news = $r->zcard('user.posted:'.$u->{'id'});
+  my $posted_comments = $r->zcard('user.comments:'.$u->{'id'});
+
+  $h->set_title(HTMLGen::entities($u->{'username'}).' - '.$cfg->{SiteName});
+  my $owner = $user && ($user->{'id'} == $u->{'id'});
+  $h->page(
+    $h->div(class => 'userinfo',
+      $h->span(class => 'avatar', gravatar($u->{'email'})).' '.
+      $h->h2(HTMLGen::entities($u->{'username'})).
+      $h->pre(HTMLGen::entities($u->{'about'})).
+      $h->ul(
+        $h->li($h->b('created ').
+               int((time-$u->{'ctime'})/(3600*24)).' days ago').
+        $h->li($h->b('karma ').$u->{'karma'}.' points').
+        $h->li($h->b('posted news ').$posted_news).
+        $h->li($h->b('posted comments ').$posted_comments).
+        ($owner ? $h->li($h->a(href => '/saved/0','saved news')) : '')
+      )
+    ).($owner ?
+       $h->br.
+       $h->form(name => 'f',
+         $h->label(for => 'email', 'email (not visible, used for gravatar)').
+         $h->br.
+         $h->inputtext(id => 'email', name => 'email', size => 40,
+                       value => HTMLGen::entities($u->{'email'})).$h->br.
+         $h->label(for => 'password', 'change password (optional)').$h->br.
+                $h->inputpass(name => 'password', size => 40).$h->br.
+                $h->label(for => 'about', 'about').$h->br.
+                $h->textarea(id => 'about', name => 'about',
+                             cols => 60, rows => 10,
+                             HTMLGen::entities($u->{'about'})
+                ).$h->br.
+                $h->button(name => 'update_profile', value => 'Update profile')
+            ).
+            $h->div(id => 'errormsg', '').
+            $h->script('
+                $(function() {
+                    $("input[name=update_profile]").click(update_profile);
+                });
+            ') : '')
+  );
+}
 
 ###############################################################################
 # API implementation
@@ -438,154 +450,154 @@ sub api_login {
   }
 }
 
-$todo = q~
-post '/api/create_account' do
-    if (!check_params "username","password")
-        return {
-            :status => "err",
-            :error => "Username and password are two required fields."
-        }.to_json
-    end
-    if params[:password].length < PasswordMinLength
-        return {
-            :status => "err",
-            :error => "Password is too short. Min length: #{PasswordMinLength}"
-        }.to_json
-    end
-    auth,errmsg = create_user(params[:username],params[:password])
-    if auth 
-        return {:status => "ok", :auth => auth}.to_json
-    else
-        return {
-            :status => "err",
-            :error => errmsg
-        }.to_json
-    end
-end
+sub api_create_account {
+  unless (check_params('username','password')) {
+    return $j->encode({
+      status => 'err',
+      error => 'Username and password are two required fields.'
+    });
+  }
+  my $password = $req->param('password');
+  if (length($password) < $cfg->{PasswordMinLength}) {
+    return $j->encode({
+      status => 'err',
+      error => 'Password is too short. Min length: '.$cfg->{PasswordMinLength}
+    });
+  }
+  my ($auth,$errmsg) = create_user($req->param('username'),$password);
+  if ($auth) {
+    return $j->encode({status => 'ok', auth => $auth});
+  } else {
+    return $j->encode({ status => 'err', error => $errmsg });
+  }
+}
 
-post '/api/submit' do
-    return {:status => "err", :error => "Not authenticated."}.to_json if !$user
-    if not check_api_secret
-        return {:status => "err", :error => "Wrong form secret."}.to_json
-    end
+sub api_submit {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
 
-    if submitted_recently
-        return {:status => "err", :error => "You have submitted a story too recently, please wait #{allowed_to_post_in_seconds} seconds."}.to_json
-    end
+  # We can have an empty url or an empty first comment, but not both.
+  if (!check_params('title', 'news_id', ':url', ':text') or
+      ($req->param('url') eq '' and $req->param('text') eq '')) {
+    return $j->encode({
+      status => 'err',
+      error => 'Please specify a news title and address or text.'
+    });
+  }
+  # Make sure the URL is about an acceptable protocol, that is
+  # http:// or https:// for now.
+  if ($req->param('url') ne '' and ($req->param('url') =~ m!^https?://!)) {
+    return $j->encode({
+      status => 'err',
+      error => 'We only accept http:// and https:// news.'
+    });
+  }
 
-    # We can have an empty url or an empty first comment, but not both.
-    if (!check_params "title","news_id",:url,:text) or
-                               (params[:url].length == 0 and
-                                params[:text].length == 0)
-        return {
-            :status => "err",
-            :error => "Please specify a news title and address or text."
-        }.to_json
-    end
-    # Make sure the URL is about an acceptable protocol, that is
-    # http:// or https:// for now.
-    if params[:url].length != 0
-        if params[:url].index("http://") != 0 and
-           params[:url].index("https://") != 0
-            return {
-                :status => "err",
-                :error => "We only accept http:// and https:// news."
-            }.to_json
-        end
-    end
-    if params[:news_id].to_i == -1
-        news_id = insert_news(params[:title],params[:url],params[:text],
-                              $user["id"])
-    else
-        news_id = edit_news(params[:news_id],params[:title],params[:url],
-                            params[:text],$user["id"])
-        if !news_id
-            return {
-                :status => "err",
-                :error => "Invalid parameters, news too old to be modified "+
-                          "or url recently posted."
-            }.to_json
-        end
-    end
-    return  {
-        :status => "ok",
-        :news_id => news_id
-    }.to_json
-end
+  my $news_id;
+  show $req->param('news_id');
+  if ($req->param('news_id') == -1) {
+    return $j->encode({
+      status => 'err',
+      error => ('You have submitted a story too recently, please wait '.
+                allowed_to_post_in_seconds().' seconds.')
+    }) if (submitted_recently());
+    $news_id = insert_news($req->param('title'), $req->param('url'),
+                           $req->param('text'), $user->{'id'});
+  } else {
+    $news_id = edit_news($req->param('news_id'),$req->param('title'),
+                         $req->param('url'), $req->param('text'),
+                         $user->{'id'});
+    unless ($news_id) {
+      return $j->encode({
+        status => 'err',
+        error => ('Invalid parameters, news too old to be modified '.
+                  'or url recently posted.')
+      });
+    }
+  }
+  show $news_id;
+  return $j->encode({ status => 'ok', news_id => $news_id });
+}
 
-post '/api/votenews' do
-    return {:status => "err", :error => "Not authenticated."}.to_json if !$user
-    if not check_api_secret
-        return {:status => "err", :error => "Wrong form secret."}.to_json
-    end
-    # Params sanity check
-    if (!check_params "news_id","vote_type") or (params["vote_type"] != "up" and
-                                                 params["vote_type"] != "down")
-        return {
-            :status => "err",
-            :error => "Missing news ID or invalid vote type."
-        }.to_json
-    end
-    # Vote the news
-    vote_type = params["vote_type"].to_sym
-    if vote_news(params["news_id"].to_i,$user["id"],vote_type)
-        return { :status => "ok" }.to_json
-    else
-        return { :status => "err", 
-                 :error => "Invalid parameters or duplicated vote." }.to_json
-    end
-end
+sub api_votenews {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
 
-post '/api/postcomment' do
-    return {:status => "err", :error => "Not authenticated."}.to_json if !$user
-    if not check_api_secret
-        return {:status => "err", :error => "Wrong form secret."}.to_json
-    end
-    # Params sanity check
-    if (!check_params "news_id","comment_id","parent_id",:comment)
-        return {
-            :status => "err",
-            :error => "Missing news_id, comment_id, parent_id, or comment
-                       parameter."
-        }.to_json
-    end
-    info = insert_comment(params["news_id"].to_i,$user['id'],
-                          params["comment_id"].to_i,
-                          params["parent_id"].to_i,params["comment"])
-    return {
-        :status => "err",
-        :error => "Invalid news, comment, or edit time expired."
-    }.to_json if !info
-    return {
-        :status => "ok",
-        :op => info['op'],
-        :comment_id => info['comment_id'],
-        :parent_id => params['parent_id'],
-        :news_id => params['news_id']
-    }.to_json
-end
+  # Params sanity check
+  my $vote_type = $req->param('vote_type');
+  if (!check_params('news_id','vote_type') or
+      ($vote_type ne 'up' and $vote_type ne 'down')) {
+    return $j->encode({
+            status => 'err',
+            error => 'Missing news ID or invalid vote type.',
+        })
+  }
+  # Vote the news
+  $vote_type = $vote_type eq 'up' ? +1 : -1;
+  if (vote_news($req->param('news_id'), $user->{'id'}, $vote_type)) {
+    return $j->encode({ status => 'ok' });
+  } else {
+    return $j->encode({ status => 'err',
+                        error => 'Invalid parameters or duplicated vote.' });
+  }
+}
 
-post '/api/updateprofile' do
-    return {:status => "err", :error => "Not authenticated."}.to_json if !$user
-    if !check_params(:about, :email, :password)
-        return {:status => "err", :error => "Missing parameters."}.to_json
-    end
-    if params[:password].length > 0
-        if params[:password].length < PasswordMinLength
-            return {
-                :status => "err",
-                :error => "Password is too short. "+
-                          "Min length: #{PasswordMinLength}"
-            }.to_json
-        end
-        $r.hmset("user:#{$user['id']}","password",
-            hash_password(params[:password],$user['salt']))
-    end
-    $r.hmset("user:#{$user['id']}",
-        "about", params[:about][0..4095],
-        "email", params[:email][0..255])
-    return {:status => "ok"}.to_json
-end
+sub api_postcomment {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
+
+  # Params sanity check
+  if (!check_params('news_id', 'comment_id', 'parent_id', ':comment')) {
+    return $j->encode({
+      status => 'err',
+      error => 'Missing news_id, comment_id, parent_id, or comment parameter.',
+    })
+  }
+  my $info = insert_comment($req->param('news_id'), $user->{'id'},
+                            $req->param('comment_id'),
+                            $req->param('parent_id'), $req->param('comment'));
+  return $j->encode({
+    status => 'err',
+    error => 'Invalid news, comment, or edit time expired.'
+  }) unless ($info);
+  return $j->encode({
+    status => 'ok',
+    op => $info->{'op'},
+    comment_id => $info->{'comment_id'},
+    parent_id => $req->param('parent_id'),
+    news_id => $req->param('news_id')
+  });
+}
+
+sub api_updateprofile {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  unless (check_params(':about', ':email', ':password')) {
+    return $j->encode({status => 'err', error => 'Missing parameters.'});
+  }
+  my $password = $req->param('password');
+  if ($password ne '') {
+    if (length $password < $cfg->{PasswordMinLength}) {
+      return $j->encode({
+                         status => 'err',
+                         error => 'Password is too short. Min length '.
+                                  $cfg->{PasswordMinLength},
+                        });
+    }
+    $r->hmset('user:'.$user->{'id'}, 'password',
+              hash_password($password,$user->{'salt'}));
+  }
+  $r->hmset('user:'.$user->{'id'},
+            'about' => (substr $req->param('about'), 0, 4096),
+            'email' => (substr $req->param('email'), 0, 256));
+  return $j->encode({status => 'ok'});
+}
 
 # Check that the list of parameters specified exist.
 # If at least one is missing false is returned, otherwise true is returned.
@@ -593,21 +605,24 @@ end
 # If a parameter is specified as as symbol only existence is tested.
 # If it is specified as a string the parameter must also meet the condition
 # of being a non empty string.
-def check_params *required
-    required.each{|p|
-        if !params[p] or (p.is_a? String and params[p].length == 0)
-            return false
-        end
+sub check_params {
+  my (@required) = @_;
+  foreach my $p (@required) {
+    if ($p =~ m!^:(.*)$!) {
+      return unless (defined $req->param($1));
+    } else {
+      my $v = $req->param($p);
+      return unless (defined $v and $v ne '');
     }
-    true
-end
+  }
+  return 1;
+}
 
-def check_params_or_halt *required
-    return if check_parameters *required
-    halt 500, H.h1{"500"}+H.p{"Missing parameters"}
-end
-
-~;
+# TODO: unused?
+#def check_params_or_halt *required
+#    return if check_parameters *required
+#    halt 500, H.h1{'500'}+H.p{'Missing parameters'}
+#end
 
 sub check_api_secret {
   return unless ($user);
@@ -619,16 +634,16 @@ sub header {
   my ($h) = @_;
   my @navitems =
     (
-     ["top" => "/"],
-     ["latest" => "/latest"],
-     ["submit" => "/submit"],
+     ['top' => '/'],
+     ['latest' => '/latest'],
+     ['submit' => '/submit'],
     );
   my $navbar =
     $h->nav(join("\n",
                  map { $h->a(href => $_->[1], HTMLGen::entities($_->[0]))
                      } @navitems));
   my $rnavbar =
-    $h->nav(id => "account",
+    $h->nav(id => 'account',
             ( $user ?
               $h->a(href => '/user/'.HTMLGen::urlencode($user->{'username'}),
                    $user->{'username'}.' ('.$user->{'karma'}.')').
@@ -640,16 +655,16 @@ sub header {
             ));
 
   $h->header($h->h1($h->a(href => '/', HTMLGen::entities($cfg->{SiteName})).
-                    " ".$h->small($VERSION)
-                   ).$navbar." ".$rnavbar);
+                    ' '.$h->small($VERSION)
+                   ).$navbar.' '.$rnavbar);
 }
 
 sub footer {
   my ($h) = @_;
   my $apisecret =
     $user ? $h->script('var apisecret = "'.$user->{'apisecret'}.'"') : '';
-  $h->footer("PLamer News source code is located ".
-             $h->a(href => "http://github.com/antirez/lamernews", 'here')
+  $h->footer('PLamer News source code is located '.
+             $h->a(href => 'http://github.com/antirez/lamernews', 'here')
             ).$apisecret;
 }
 
@@ -702,41 +717,41 @@ sub get_rand {
   unpack 'H*', $bytes;
 }
 
-$todo = q~
 # Create a new user with the specified username/password
 #
 # Return value: the function returns two values, the first is the
 #               auth token if the registration succeeded, otherwise
 #               is nil. The second is the error message if the function
 #               failed (detected testing the first return value).
-def create_user(username,password)
-    if $r.exists("username.to.id:#{username.downcase}")
-        return nil, "Username is busy, please try a different one."
-    end
-    if rate_limit_by_ip(3600*15,"create_user",request.ip)
-        return nil, "Please wait some time before creating a new user."
-    end
-    id = $r.incr("users.count")
-    auth_token = get_rand
-    salt = get_rand
-    $r.hmset("user:#{id}",
-        "id",id,
-        "username",username,
-        "salt",salt,
-        "password",hash_password(password,salt),
-        "ctime",Time.now.to_i,
-        "karma",10,
-        "about","",
-        "email","",
-        "auth",auth_token,
-        "apisecret",get_rand,
-        "flags","",
-        "karma_incr_time",Time.new.to_i)
-    $r.set("username.to.id:#{username.downcase}",id)
-    $r.set("auth:#{auth_token}",id)
-    return auth_token,nil
-end
-~;
+sub create_user {
+  my ($username, $password) = @_;
+
+  if ($r->exists('username.to.id:'.(lc $username))) {
+    return (undef, 'Username is busy, please try a different one.');
+  }
+  if (rate_limit_by_ip(3600*15, 'create_user', $req->address)) {
+    return (undef, 'Please wait some time before creating a new user.');
+  }
+  my $id = $r->incr('users.count');
+  my $auth_token = get_rand();
+  my $salt = get_rand();
+  $r->hmset('user:'.$id,
+            'id' => $id,
+            'username' => $username,
+            'salt' => $salt,
+            'password' => hash_password($password, $salt),
+            'ctime' => time,
+            'karma' => 10,
+            'about' => '',
+            'email' => '',
+            'auth' => $auth_token,
+            'apisecret' => get_rand(),
+            'flags' => '',
+            'karma_incr_time' => time);
+    $r->set('username.to.id:'.(lc $username), $id);
+    $r->set('auth:'.$auth_token, $id);
+    return ($auth_token, undef);
+}
 
 # Update the specified user authentication token with a random generated
 # one. This in other words means to logout all the sessions open for that
@@ -789,18 +804,15 @@ sub check_user_credentials {
   ($user->{'password'} eq $hp) ? ($user->{'auth'},$user->{'apisecret'}) : undef;
 }
 
-$todo = q~
 # Has the user submitted a news story in the last `NewsSubmissionBreak` seconds?
-def submitted_recently
-  allowed_to_post_in_seconds > 0
-end
+sub submitted_recently {
+  allowed_to_post_in_seconds() > 0
+}
 
 # Indicates when the user is allowed to submit another story after the last.
-def allowed_to_post_in_seconds
-  $r.ttl("user:#{$user['id']}:submitted_recently")
-end
-
-~;
+sub allowed_to_post_in_seconds {
+  $r->ttl('user:'.$user->{'id'}.':submitted_recently');
+}
 
 ################################################################################
 # News
@@ -845,7 +857,7 @@ sub get_news_by_id {
 
   # Get the associated users information
   foreach (@result) { # TODO: pipeline?
-    $_->{'username'} = $r->hget('user:'.$_->{'user_id'}, "username");
+    $_->{'username'} = $r->hget('user:'.$_->{'user_id'}, 'username');
     $_->{'voted'} = 0;
   }
 
@@ -868,7 +880,6 @@ sub get_news_by_id {
   return $opt{single} ? $result[0] : \@result;
 }
 
-$todo = q~
 # Vote the specified news in the context of a given user.
 # type is either :up or :down
 #
@@ -881,67 +892,73 @@ $todo = q~
 # Return value: the news rank if the vote was inserted, otherwise
 # if the vote was duplicated, or user_id or news_id don't match any
 # existing user or news, false is returned.
-def vote_news(news_id,user_id,vote_type)
-    # Fetch news and user
-    user = ($user and $user["id"] == user_id) ? $user : get_user_by_id(user_id)
-    news = get_news_by_id(news_id)
-    return false if !news or !user
+sub vote_news {
+  show @_;
+  my ($news_id, $user_id, $vote_type) = @_;
+  # Fetch news and user
+  my $user =
+    ($user and $user->{'id'} == $user_id) ? $user : get_user_by_id($user_id);
+  my $news = get_news_by_id($news_id);
+  return unless ($news and $user);
 
-    # Now it's time to check if the user already voted that news, either
-    # up or down. If so return now.
-    if $r.zscore("news.up:#{news_id}",user_id) or
-       $r.zscore("news.down:#{news_id}",user_id)
-       return false
-    end
+  # Now it's time to check if the user already voted that news, either
+  # up or down. If so return now.
+  if ($r->zscore('news.up:'.$news_id, $user_id) or
+      $r->zscore('news.down:'.$news_id, $user_id)) {
+    return;
+  }
 
-    # News was not already voted by that user. Add the vote.
-    # Note that even if there is a race condition here and the user may be
-    # voting from another device/API in the time between the ZSCORE check
-    # and the zadd, this will not result in inconsistencies as we will just
-    # update the vote time with ZADD.
-    if $r.zadd("news.#{vote_type}:#{news_id}", Time.now.to_i, user_id)
-        $r.hincrby("news:#{news_id}",vote_type,1)
-    end
-    $r.zadd("user.saved:#{user_id}", Time.now.to_i, news_id) if vote_type == :up
+  # News was not already voted by that user. Add the vote.
+  # Note that even if there is a race condition here and the user may be
+  # voting from another device/API in the time between the ZSCORE check
+  # and the zadd, this will not result in inconsistencies as we will just
+  # update the vote time with ZADD.
+  my $vote = ($vote_type == 1 ? 'up' : 'down');
+  if ($r->zadd('news.'.$vote.':'.$news_id, time, $user_id)) {
+    $r->hincrby('news:'.$news_id, $vote, 1);
+  }
+  $r->zadd('user.saved:'.$user_id, time, $news_id) if ($vote_type == 1);
 
-    # Compute the new values of score and karma, updating the news accordingly.
-    score = compute_news_score(news)
-    news["score"] = score
-    rank = compute_news_rank(news)
-    $r.hmset("news:#{news_id}",
-        "score",score,
-        "rank",rank)
-    $r.zadd("news.top",rank,news_id)
-    return rank
-end
+  # Compute the new values of score and karma, updating the news accordingly.
+  my $score = compute_news_score($news);
+  $news->{'score'} = $score;
+  my $rank = compute_news_rank($news);
+  $r->hmset('news:'.$news_id, 'score' => $score, 'rank' => $rank);
+  $r->zadd('news.top', $rank, $news_id);
+  return $rank;
+}
 
 # Given the news compute its score.
 # No side effects.
-def compute_news_score(news)
-    upvotes = $r.zrange("news.up:#{news["id"]}",0,-1,:withscores => true)
-    downvotes = $r.zrange("news.down:#{news["id"]}",0,-1,:withscores => true)
-    # FIXME: For now we are doing a naive sum of votes, without time-based
-    # filtering, nor IP filtering.
-    # We could use just ZCARD here of course, but I'm using ZRANGE already
-    # since this is what is needed in the long term for vote analysis.
-    score = (upvotes.length/2) - (downvotes.length/2)
-    # Now let's add the logarithm of the sum of all the votes, since
-    # something with 5 up and 5 down is less interesting than something
-    # with 50 up and 50 donw.
-    votes = upvotes.length/2+downvotes.length/2
-    if votes > NewsScoreLogStart
-        score += Math.log(votes-NewsScoreLogStart)*NewsScoreLogBooster
-    end
-    score
-end
+sub compute_news_score {
+  my ($news) = @_;
+
+  # TODO: withscores => 1
+  my $upvotes = $r->zrange('news.up:'.$news->{'id'}, 0, -1);
+  my $downvotes = $r->zrange('news.down:'.$news->{'id'}, 0, -1);
+  # FIXME: For now we are doing a naive sum of votes, without time-based
+  # filtering, nor IP filtering.
+  # We could use just ZCARD here of course, but I'm using ZRANGE already
+  # since this is what is needed in the long term for vote analysis.
+  my $score = (@$upvotes/2) - (@$downvotes/2);
+  # Now let's add the logarithm of the sum of all the votes, since
+  # something with 5 up and 5 down is less interesting than something
+  # with 50 up and 50 down.
+  my $votes = @$upvotes/2 + @$downvotes/2;
+  if ($votes > $cfg->{NewsScoreLogStart}) {
+    $score += log($votes-$cfg->{NewsScoreLogStart})*$cfg->{NewsScoreLogBooster};
+  }
+  $score
+}
 
 # Given the news compute its rank, that is function of time and score.
 #
 # The general forumla is RANK = SCORE / (AGE ^ AGING_FACTOR)
-def compute_news_rank(news)
-    age = (Time.now.to_i - news["ctime"].to_i)+NewsAgePadding
-    return (news["score"].to_f*1000)/(age**RankAgingFactor)
-end
+sub compute_news_rank {
+  my ($news) = @_;
+  my $age = (time - $news->{'ctime'}) + $cfg->{NewsAgePadding};
+  return ($news->{'score'})/(($age/3600)**$cfg->{RankAgingFactor})
+}
 
 # Add a news with the specified url or text.
 #
@@ -951,46 +968,52 @@ end
 #
 # Return value: the ID of the inserted news, or the ID of the news with
 # the same URL recently added.
-def insert_news(title,url,text,user_id)
-    # If we don't have an url but a comment, we turn the url into
-    # text://....first comment..., so it is just a special case of
-    # title+url anyway.
-    textpost = url.length == 0
-    if url.length == 0
-        url = "text://"+text[0...CommentMaxLength]
-    end
-    # Check for already posted news with the same URL.
-    if !textpost and (id = $r.get("url:"+url))
-        return id.to_i
-    end
-    # We can finally insert the news.
-    ctime = Time.new.to_i
-    news_id = $r.incr("news.count")
-    $r.hmset("news:#{news_id}",
-        "id", news_id,
-        "title", title,
-        "url", url,
-        "user_id", user_id,
-        "ctime", ctime,
-        "score", 0,
-        "rank", 0,
-        "up", 0,
-        "down", 0,
-        "comments", 0)
-    # The posting user virtually upvoted the news posting it
-    rank = vote_news(news_id,user_id,:up)
-    # Add the news to the user submitted news
-    $r.zadd("user.posted:#{user_id}",ctime,news_id)
-    # Add the news into the chronological view
-    $r.zadd("news.cron",ctime,news_id)
-    # Add the news into the top view
-    $r.zadd("news.top",rank,news_id)
-    # Add the news url for some time to avoid reposts in short time
-    $r.setex("url:"+url,PreventRepostTime,news_id) if !textpost
-    # Set a timeout indicating when the user may post again
-    $r.setex("user:#{$user['id']}:submitted_recently",NewsSubmissionBreak,'1')
-    return news_id
-end
+sub insert_news {
+  my ($title, $url, $text, $user_id) = @_;
+
+  # If we don't have an url but a comment, we turn the url into
+  # text://....first comment..., so it is just a special case of
+  # title+url anyway.
+  my $textpost = ($url eq '');
+  if ($textpost) {
+    $url = 'text://'.substr($text, 0, $cfg->{CommentMaxLength});
+  }
+  # Check for already posted news with the same URL.
+  my $news_id;
+  if (!$textpost && ($news_id = $r->get('url:'.$url))) {
+    return $news_id;
+  }
+
+  # We can finally insert the news.
+  my $ctime = time;
+  $news_id = $r->incr('news.count');
+  $r->hmset('news:'.$news_id,
+            'id' => $news_id,
+            'title' => $title,
+            'url' => $url,
+            'user_id' => $user_id,
+            'ctime' => $ctime,
+            'score' => 0,
+            'rank' => 0,
+            'up' => 0,
+            'down' => 0,
+            'comments' => 0);
+  # The posting user virtually upvoted the news posting it
+  my $rank = vote_news($news_id, $user_id, +1);
+  # Add the news to the user submitted news
+  $r->zadd('user.posted:'.$user_id, $ctime, $news_id);
+  # Add the news into the chronological view
+  $r->zadd('news.cron', $ctime, $news_id);
+  # Add the news into the top view
+  $r->zadd('news.top', $rank, $news_id);
+  # Add the news url for some time to avoid reposts in short time
+  $r->setex('url:'.$url, $cfg->{PreventRepostTime}, $news_id)
+    unless ($textpost);
+  # Set a timeout indicating when the user may post again
+  $r->setex('user:'.$user->{'id'}.':submitted_recently',
+            $cfg->{NewsSubmissionBreak}, '1');
+  return $news_id;
+}
 
 # Edit an already existing news.
 #
@@ -998,35 +1021,36 @@ end
 # On success but when a news deletion is performed (empty title) -1 is returned.
 # On failure (for instance news_id does not exist or does not match
 #             the specified user_id) false is returned.
-def edit_news(news_id,title,url,text,user_id)
-    news = get_news_by_id(news_id)
-    return false if !news or news['user_id'].to_i != user_id.to_i
-    return false if !(news['ctime'].to_i > (Time.now.to_i - NewsEditTime))
+sub edit_news {
+  my ($news_id, $title, $url, $text, $user_id) = @_;
+  my $news = get_news_by_id($news_id);
 
-    # If we don't have an url but a comment, we turn the url into
-    # text://....first comment..., so it is just a special case of
-    # title+url anyway.
-    textpost = url.length == 0
-    if url.length == 0
-        url = "text://"+text[0...CommentMaxLength]
-    end
-    # Even for edits don't allow to change the URL to the one of a
-    # recently posted news.
-    if !textpost and url != news['url']
-        return false if $r.get("url:"+url)
-        # No problems with this new url, but the url changed
-        # so we unblock the old one and set the block in the new one.
-        # Otherwise it is easy to mount a DOS attack.
-        $r.del("url:"+news['url'])
-        $r.setex("url:"+url,PreventRepostTime,news_id) if !textpost
-    end
-    # Edit the news fields.
-    $r.hmset("news:#{news_id}",
-        "title", title,
-        "url", url)
-    return news_id
-end
-~;
+  return if (!$news or $news->{'user_id'} != $user_id);
+  return unless ($news->{'ctime'} > (time - $cfg->{NewsEditTime}));
+
+  # If we don't have an url but a comment, we turn the url into
+  # text://....first comment..., so it is just a special case of
+  # title+url anyway.
+  my $textpost = ($url eq '');
+  if ($textpost) {
+    $url = 'text://'.substr($text, 0, $cfg->{CommentMaxLength});
+  }
+
+  # Even for edits don't allow to change the URL to the one of a
+  # recently posted news.
+  if (!$textpost and $url ne $news->{'url'}) {
+    return if ($r->get('url:'.$url));
+    # No problems with this new url, but the url changed
+    # so we unblock the old one and set the block in the new one.
+    # Otherwise it is easy to mount a DOS attack.
+    $r->del('url:'.$news->{'url'});
+    $r->setex('url:'.$url, $cfg->{PreventRepostTime}, $news_id)
+      unless ($textpost);
+  }
+  # Edit the news fields.
+  $r->hmset('news:'.$news_id, 'title' => $title, 'url' => $url);
+  return $news_id;
+}
 
 # Return the host part of the news URL field.
 # If the url is in the form text:// nil is returned.
@@ -1077,7 +1101,7 @@ sub news_to_html {
                   HTMLGen::entities($news{'username'}))
           ).' '.str_elapsed($news{'ctime'}).' '.
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
-        )#+news["score"].to_s+","+news["rank"].to_s+","+compute_news_rank(news).to_s
+        )#+news['score'].to_s+','+news['rank'].to_s+','+compute_news_rank(news).to_s
   )."\n"
 }
 
@@ -1092,9 +1116,9 @@ $todo = q~
         if paginate
             last_displayed = paginate[:start]+paginate[:perpage]
             if last_displayed < paginate[:count]
-                nextpage = paginate[:link].sub("$",
+                nextpage = paginate[:link].sub('$',
                            (paginate[:start]+paginate[:perpage]).to_s)
-                aux << H.a(:href => nextpage,:class=> "more") {"[more]"}
+                aux << H.a(:href => nextpage,:class=> 'more') {'[more]'}
             end
         end
         aux
@@ -1114,10 +1138,10 @@ $todo = q~
 # Note: this function can be called in the context of redis.pipelined {...}
 def update_news_rank_if_needed(n)
     real_rank = compute_news_rank(n)
-    if (real_rank-n["rank"].to_f).abs > 0.001
-        $r.hmset("news:#{n["id"]}","rank",real_rank)
-        $r.zadd("news.top",real_rank,n["id"])
-        n["rank"] = real_rank.to_s
+    if (real_rank-n['rank'].to_f).abs > 0.001
+        $r.hmset('news:#{n['id']}','rank',real_rank)
+        $r.zadd('news.top',real_rank,n['id'])
+        n['rank'] = real_rank.to_s
     end
 end
 
@@ -1147,13 +1171,15 @@ sub get_latest_news {
   my $result = get_news_by_id($news_ids, update_rank => 1);
 }
 
-$todo = q~
 # Get saved news of current user
-def get_saved_news(user_id,start=0)
-    count = $r.zcard("user.saved:#{user_id}").to_i
-    news_ids = $r.zrevrange("user.saved:#{user_id}",start,start+(SavedNewsPerPage-1))
-    return get_news_by_id(news_ids),count
-end
+sub get_saved_news {
+  my ($user_id, $start) = @_;
+  $start = 0 unless (defined $start);
+  my $count = $r->zcard('user.saved:'.$user_id);
+  my $news_ids = $r->zrevrange('user.saved:'.$user_id,
+                               $start, $start+($cfg->{SavedNewsPerPage}-1));
+  return (get_news_by_id($news_ids), $count);
+}
 
 ###############################################################################
 # Comments
@@ -1180,60 +1206,61 @@ end
 #
 # The parent_id is only used for inserts (when comment_id == -1), otherwise
 # is ignored.
-def insert_comment(news_id,user_id,comment_id,parent_id,body)
-    puts "news_id: #{news_id}"
-    puts "comment_id: #{comment_id}"
-    puts "parent_id: #{parent_id}"
-    puts "body: #{body}"
-    news = get_news_by_id(news_id)
-    return false if !news
-    if comment_id == -1
-        comment = {"score" => 0,
-                   "body" => body,
-                   "parent_id" => parent_id,
-                   "user_id" => user_id,
-                   "ctime" => Time.now.to_i};
-        comment_id = Comments.insert(news_id,comment)
-        return false if !comment_id
-        $r.hincrby("news:#{news_id}","comments",1);
-        $r.zadd("user.comments:#{user_id}",
-            Time.now.to_i,
-            news_id.to_s+"-"+comment_id.to_s);
-        return {
-            "news_id" => news_id,
-            "comment_id" => comment_id,
-            "op" => "insert"
-        }
-    end
+sub insert_comment {
+  show @_;
+  my ($news_id, $user_id, $comment_id, $parent_id, $body) = @_;
+  my $news = get_news_by_id($news_id);
+  show $news;
+  return unless ($news);
+  if ($comment_id == -1) {
+    my $comment =
+      {
+       score => 0,
+       body => $body,
+       parent_id => $parent_id,
+       user_id => $user_id,
+       ctime => time,
+      };
+    my $comment_id = $comments->insert($news_id, $comment);
+    show $comment_id;
+    return unless ($comment_id);
+    $r->hincrby('news:'.$news_id, 'comments', 1);
+    $r->zadd('user.comments:'.$user_id, time, $news_id.'-'.$comment_id);
+    return {
+            'news_id' => $news_id,
+            'comment_id' => $comment_id,
+            'op' => 'insert',
+           }
+  }
 
-    # If we reached this point the next step is either to update or
-    # delete the comment. So we make sure the user_id of the request
-    # matches the user_id of the comment.
-    # We also make sure the user is in time for an edit operation.
-    c = Comments.fetch(news_id,comment_id)
-    return false if !c or c['user_id'].to_i != user_id.to_i
-    return false if !(c['ctime'].to_i > (Time.now.to_i - CommentEditTime))
+  # If we reached this point the next step is either to update or
+  # delete the comment. So we make sure the user_id of the request
+  # matches the user_id of the comment.
+  # We also make sure the user is in time for an edit operation.
+  my $c = $comments->fetch($news_id, $comment_id);
+  return unless ($c and $c->{'user_id'} == $user_id);
+  return unless ($c->{'ctime'} > (time - $cfg->{CommentEditTime}));
 
-    if body.length == 0
-        return false if !Comments.del_comment(news_id,comment_id)
-        $r.hincrby("news:#{news_id}","comments",-1);
-        return {
-            "news_id" => news_id,
-            "comment_id" => comment_id,
-            "op" => "delete"
+  if (length($body) == 0) {
+    return unless (!$comments->del_comment($news_id, $comment_id));
+    $r->hincrby('news:'.$news_id, 'comments', -1);
+    return {
+            'news_id' => $news_id,
+            'comment_id' => $comment_id,
+            'op' => 'delete'
+           }
+  } else {
+    my %update;
+    $update{'body'} = $body;
+    $update{'del'} = 0 if ($c->{'del'} == 1);
+    return unless ($comments->edit($news_id, $comment_id, \%update));
+    return {
+            'news_id' => $news_id,
+            'comment_id' => $comment_id,
+            'op' => 'update'
         }
-    else
-        update = {"body" => body}
-        update = {"del" => 0} if c['del'].to_i == 1
-        return false if !Comments.edit(news_id,comment_id,update)
-        return {
-            "news_id" => news_id,
-            "comment_id" => comment_id,
-            "op" => "update"
-        }
-    end
-end
-~;
+  }
+}
 
 sub gravatar {
   my $email = shift || '';
@@ -1257,8 +1284,8 @@ sub comment_to_html {
               'data-comment-id' => $news_id.'-'.$c->{'id'},
     $h->span(class => 'avatar', gravatar($u->{'email'})).
     $h->span(class => 'info',
-      $h->span(class => "username",
-        $h->a(href=>"/user/".HTMLGen::urlencode($u->{'username'}),
+      $h->span(class => 'username',
+        $h->a(href=>'/user/'.HTMLGen::urlencode($u->{'username'}),
               HTMLGen::entities($u->{'username'}))
         ).' '.str_elapsed($c->{'ctime'}).'. '.
         ($user and !$c->{'topcomment'} ?
@@ -1301,21 +1328,20 @@ sub render_comments_for_news {
 sub str_elapsed {
   my $t = shift;
   my $seconds = time - $t;
-  return "now" if ($seconds <= 1);
+  return 'now' if ($seconds <= 1);
   return $seconds.' seconds ago' if ($seconds < 60);
   return int($seconds/60).' minutes ago' if ($seconds < 3600);
   return int($seconds/3600).' hours ago' if ($seconds < 86400);
   return int($seconds/86400).' days ago'
 }
 
-$todo = q~
 # Generic API limiting function
-def rate_limit_by_ip(delay,*tags)
-    key = "limit:"+tags.join(".")
-    return true if $r.exists(key)
-    $r.setex(key,delay,1)
-    return false
-end
-~;
+sub rate_limit_by_ip {
+  my $delay = shift;
+  my $key = 'limit:'.join('.', @_);
+  return 1 if ($r->exists($key));
+  $r->setex($key, $delay, 1);
+  return;
+}
 
 $app;

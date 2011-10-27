@@ -37,7 +37,7 @@ sub insert {
   die 'no parent_id field' unless (exists $comment->{'parent_id'});
   my $r = $self->{redis};
   my $key = $self->thread_key($thread_id);
-  if (exists $comment->{'parent_id'} != -1) {
+  if ($comment->{'parent_id'} != -1) {
     my $parent = $r->hget($key, $comment->{'parent_id'});
     return unless ($parent);
   }
