@@ -1368,8 +1368,9 @@ sub comment_to_html {
         $h->a(href=>'/user/'.HTMLGen::urlencode($u->{'username'}),
               HTMLGen::entities($u->{'username'}))
         ).' '.str_elapsed($c->{'ctime'}).'. '.
-        $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
-              "link").' '.
+        (!$c->{'topcomment'} ?
+         $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
+               "link") : '').' '.
         ($user and !$c->{'topcomment'} ?
          $h->a(href => '/reply/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'reply').' ' :
