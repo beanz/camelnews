@@ -664,6 +664,8 @@ sub api_postcomment {
 sub api_updateprofile {
   return $j->encode({status => 'err', error => 'Not authenticated.'})
     unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
   unless (check_params(':about', ':email', ':password')) {
     return $j->encode({status => 'err', error => 'Missing parameters.'});
   }
