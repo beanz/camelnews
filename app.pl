@@ -635,7 +635,7 @@ sub api_votenews {
   # Vote the news
   my ($karma, $error) =
     vote_news($req->param('news_id'),$user->{'id'}, $vote_type);
-  if ($karma) {
+  if (defined $karma) {
     return $j->encode({ status => 'ok' });
   } else {
     return $j->encode({ status => 'err', error => $error });
@@ -843,6 +843,14 @@ sub increment_user_karma_by {
   if ($user and ($user->{'id'} == $user_id)) {
     $user->{'karma'} = $user->{'karma'} + $increment;
   }
+}
+
+# Return the specified user karma.
+sub get_user_karma {
+  my ($user_id) = @_;
+  return $user->{'karma'} if ($user and ($user_id == $user->{'id'}));
+  my $karma = $r.hget('user:'.$user_id, 'karma');
+  $karma || 0
 }
 
 # Return the hex representation of an unguessable 160 bit random number.
@@ -1054,7 +1062,7 @@ sub vote_news {
          (get_user_karma($user_id) < $cfg->{NewsUpvoteMinKarma})) or
         ($vote_type eq 'down' and
          (get_user_karma($user_id) < $cfg->{NewsDownvoteMinKarma}))) {
-      return (undef,"You don't have enough karma to vote ".$vote_type);
+      return (undef, "You don't have enough karma to vote ".$vote_type);
     }
   }
   # News was not already voted by that user. Add the vote.
