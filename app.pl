@@ -12,14 +12,13 @@ use HTMLGen;
 use Plack::Builder;
 use Plack::Request;
 use Redis::hiredis;
-use YAML;
 
 unless (caller) {
   require Plack::Runner;
   Plack::Runner->run(@ARGV, $0);
 }
 
-my $cfg = YAML::LoadFile('app_config.yml');
+my $cfg = do 'app_config.pl' or die "Config file error: $@\n";
 our $VERSION = '0.4.1';
 
 our %ct =
@@ -634,11 +633,12 @@ sub api_votenews {
         })
   }
   # Vote the news
-  if (vote_news($req->param('news_id'), $user->{'id'}, $vote_type)) {
+  my ($karma, $error) =
+    vote_news($req->param('news_id'),$user->{'id'}, $vote_type);
+  if ($karma) {
     return $j->encode({ status => 'ok' });
   } else {
-    return $j->encode({ status => 'err',
-                        error => 'Invalid parameters or duplicated vote.' });
+    return $j->encode({ status => 'err', error => $error });
   }
 }
 
@@ -831,8 +831,17 @@ sub increment_karma_if_needed {
   if ($user->{'karma_incr_time'} < ($t - $cfg->{KarmaIncrementInterval})) {
     my $userkey = 'user:'.$user->{'id'};
     $r->hset($userkey, 'karma_incr_time', $t);
-    $r->hincrby($userkey, 'karma', $cfg->{KarmaIncrementAmount});
-    $user->{'karma'} = $user->{'karma'} + $cfg->{KarmaIncrementAmount};
+    increment_user_karma_by($user->{'id'}, $cfg->{KarmaIncrementAmount});
+  }
+}
+
+# Increment the user karma by the specified amount and make sure to
+# update $user to reflect the change if it is the same user id.
+sub increment_user_karma_by {
+  my ($user_id, $increment) = @_;
+  $r->hincrby('user:'.$user_id, 'karma', $increment);
+  if ($user and ($user->{'id'} == $user_id)) {
+    $user->{'karma'} = $user->{'karma'} + $increment;
   }
 }
 
@@ -870,7 +879,7 @@ sub create_user {
             'salt' => $salt,
             'password' => hash_password($password, $salt),
             'ctime' => time,
-            'karma' => 10,
+            'karma' => $cfg->{UserInitialKarma},
             'about' => '',
             'email' => '',
             'auth' => $auth_token,
@@ -1017,24 +1026,37 @@ sub get_news_by_id {
 # 3) That the karma is transfered to the author of the post, if different.
 # 4) That the news score is updaed.
 #
-# Return value: the news rank if the vote was inserted, otherwise
-# if the vote was duplicated, or user_id or news_id don't match any
-# existing user or news, false is returned.
+# Return value: two return values are returned: rank,error
+#
+# If the fucntion is successful rank is not nil, and represents the news karma
+# after the vote was registered. The error is set to nil.
+#
+# On error the returned karma is false, and error is a string describing the
+# error that prevented the vote.
 sub vote_news {
   my ($news_id, $user_id, $vote_type) = @_;
   # Fetch news and user
   my $user =
     ($user and $user->{'id'} == $user_id) ? $user : get_user_by_id($user_id);
   my $news = get_news_by_id($news_id);
-  return unless ($news and $user);
+  return (undef, 'No such news or user.') unless ($news and $user);
 
   # Now it's time to check if the user already voted that news, either
   # up or down. If so return now.
   if ($r->zscore('news.up:'.$news_id, $user_id) or
       $r->zscore('news.down:'.$news_id, $user_id)) {
-    return;
+    return (undef, 'Duplicated vote.');
   }
 
+  # Check if the user has enough karma to perform this operation
+  if ($user->{'id'} != $news->{'user_id'}) {
+    if (($vote_type eq 'up' and
+         (get_user_karma($user_id) < $cfg->{NewsUpvoteMinKarma})) or
+        ($vote_type eq 'down' and
+         (get_user_karma($user_id) < $cfg->{NewsDownvoteMinKarma}))) {
+      return (undef,"You don't have enough karma to vote ".$vote_type);
+    }
+  }
   # News was not already voted by that user. Add the vote.
   # Note that even if there is a race condition here and the user may be
   # voting from another device/API in the time between the ZSCORE check
@@ -1051,7 +1073,20 @@ sub vote_news {
   my $rank = compute_news_rank($news);
   $r->hmset('news:'.$news_id, 'score' => $score, 'rank' => $rank);
   $r->zadd('news.top', $rank, $news_id);
-  return $rank;
+
+  # Remove some karma to the user if needed, and transfer karma to the
+  # news owner in the case of an upvote.
+  if ($user->{'id'} != $news->{'user_id'}) {
+    if ($vote_type eq 'up') {
+      increment_user_karma_by($user_id, -$cfg->{NewsUpvoteKarmaCost});
+      increment_user_karma_by($news->{'user_id'},
+                              $cfg->{NewsUpvoteKarmaTransfered});
+    } else {
+      increment_user_karma_by($user_id,-$cfg->{NewsDownvoteKarmaCost});
+    }
+  }
+
+  return ($rank,undef);
 }
 
 # Given the news compute its score.
@@ -1125,7 +1160,7 @@ sub insert_news {
             'down' => 0,
             'comments' => 0);
   # The posting user virtually upvoted the news posting it
-  my $rank = vote_news($news_id, $user_id, 'up');
+  my ($rank, $error) = vote_news($news_id, $user_id, 'up');
   # Add the news to the user submitted news
   $r->zadd('user.posted:'.$user_id, $ctime, $news_id);
   # Add the news into the chronological view
@@ -1400,6 +1435,7 @@ sub insert_comment {
             'comment_id' => $comment_id,
             'op' => 'insert',
            }
+    # increment_user_karma_by($user_id, $cfg->{KarmaIncrementComment});
   }
 
   # If we reached this point the next step is either to update or
