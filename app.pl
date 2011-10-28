@@ -125,6 +125,9 @@ my $app =
       when ('/api/updateprofile') { # TODO: post
         $p = api_updateprofile();
       }
+      when ('/api/votecomment') { # TODO: post
+        $p = api_votecomment();
+      }
       when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
         my $ct = $ct{$1};
         if (/\.\./ or !defined $ct) {
@@ -680,6 +683,31 @@ sub api_updateprofile {
             'about' => (substr $req->param('about'), 0, 4096),
             'email' => (substr $req->param('email'), 0, 256));
   return $j->encode({status => 'ok'});
+}
+
+sub api_votecomment {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
+  # Params sanity check
+  my $vote_type = $req->param('vote_type');
+  unless (check_params('comment_id', 'vote_type') or
+          ($vote_type ne 'up' and $vote_type ne 'down')) {
+    return $j->encode({
+            status => 'err',
+            error => 'Missing comment ID or invalid vote type.',
+        })
+  }
+  # Vote the news
+  $vote_type = $vote_type eq 'up' ? +1 : -1;
+  my ($news_id, $comment_id) = split /-/, $req->param('comment_id'), 2;
+  if (vote_comment($news_id, $comment_id, $user->{'id'}, $vote_type)) {
+    return $j->encode({ status => 'ok' });
+  } else {
+    return $j->encode({ status => 'err',
+                        error => 'Invalid parameters or duplicated vote.' });
+  }
 }
 
 # Check that the list of parameters specified exist.
@@ -1426,11 +1454,28 @@ sub comment_to_html {
         ).' '.str_elapsed($c->{'ctime'}).'. '.
         (!$c->{'topcomment'} ?
          $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
-               "link") : '').' '.
+               'link') : '').' '.
         ($user and !$c->{'topcomment'} ?
          $h->a(href => '/reply/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'reply').' ' :
          ' ').
+        (!$c->{'topcomment'} ?
+         do {
+           my $upclass = 'uparrow';
+           my $downclass = 'downarrow';
+           if ($user and $c->{'up'} and
+               (grep { $_ eq $user->{'id'} } @{$c->{'up'}})) {
+             $upclass .= ' voted';
+             $downclass .= ' disabled';
+           } elsif ($user and $c->{'down'} and
+                    (grep { $_ eq $user->{'id'} } @{$c->{'down'}})) {
+             $downclass .= ' voted';
+             $upclass .= ' disabled';
+           }
+           $h->a(href => '#up', class => $upclass, '&#9650;').' '.
+           $h->a(href => '#down', class => $downclass, '&#9660;')
+         }
+         : ' ').
         ($show_edit_link ?
          $h->a(href => '/editcomment/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'edit').
@@ -1454,7 +1499,17 @@ sub render_comments_for_news {
       $user{$c->{'id'}} = $cfg->{DeletedUser} unless ($user->{$c->{'id'}});
       $html .= comment_to_html($c, $user->{$c->{'id'}}, $news_id);
     });
-  $html;
+  $h->div(id => 'comments', $html);
+}
+
+sub vote_comment {
+  my ($news_id, $comment_id, $user_id, $vote_type) = @_;
+  my $comment = $comments->fetch($news_id, $comment_id);
+  return unless ($comment);
+  my $varray = $comment->{$vote_type} || [];
+  return if (grep { $_ eq $user_id } @$varray);
+  push @$varray, $user_id;
+  return $comments->edit($news_id, $comment_id, { $vote_type => $varray });
 }
 
 ###############################################################################
