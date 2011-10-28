@@ -93,6 +93,7 @@ sub render_comments {
 sub render_comments_rec {
   my ($self, $byparent, $parent_id, $level, $block) = @_;
   my $thislevel = $byparent->{$parent_id};
+  return '' unless ($thislevel);
   $thislevel = $self->{sort_proc}->($thislevel, $level) if ($self->{sort_proc});
   foreach my $c (@$thislevel) {
     $c->{'level'} = $level;
