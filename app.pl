@@ -63,35 +63,25 @@ my $app =
     show $req->path_info;
     given ($req->path_info) {
       when ('/') {
-        $h->set_title('Top News - '.$cfg->{SiteName});
-        my $news = get_top_news();
-        $p = $h->page($h->h2('Top News').news_list_to_html($news));
+        $p = top();
       }
       when ('/latest') {
-        $h->set_title('Latest News - '.$cfg->{SiteName});
-        my $news = get_latest_news();
-        $p = $h->page($h->h2('Latest news').news_list_to_html($news));
-      }
-      when ('/submit') {
-        $p = submit();
-      }
-      when (qr!^/news/(\d+)$!) {
-        $p = news($1);
+        $p = latest();
       }
       when (qr!^/saved/(\d+)$!) {
         $p = saved($1);
       }
-      when (qr!^/editnews/(\d+)$!) {
-        $p = editnews($1);
-      }
-      when (qr!^/user/(.+)$!) {
-        $p = user($1);
-      }
       when ('/login') {
         $p = login();
       }
+      when ('/submit') {
+        $p = submit();
+      }
       when ('/logout') {
         $p = logout();
+      }
+      when (qr!^/news/(\d+)$!) {
+        $p = news($1);
       }
       when (qr!^/reply/(\d+)/(\d+)$!) {
         $p = reply($1, $2);
@@ -99,14 +89,17 @@ my $app =
       when (qr!^/editcomment/(\d+)/(\d+)$!) {
         $p = editcomment($1, $2);
       }
-      when ('/api/login') {
-        $p = api_login();
+      when (qr!^/editnews/(\d+)$!) {
+        $p = editnews($1);
+      }
+      when (qr!^/user/(.+)$!) {
+        $p = user($1);
       }
       when ('/api/logout') { # TODO: post
         $p = api_logout();
       }
-      when ('/api/updateprofile') { # TODO: post
-        $p = api_updateprofile();
+      when ('/api/login') {
+        $p = api_login();
       }
       when ('/api/create_account') { # TODO: post
         $p = api_create_account();
@@ -119,6 +112,9 @@ my $app =
       }
       when ('/api/postcomment') { # TODO: post
         $p = api_postcomment();
+      }
+      when ('/api/updateprofile') { # TODO: post
+        $p = api_updateprofile();
       }
       when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
         my $ct = $ct{$1};
@@ -134,6 +130,18 @@ my $app =
     return $p if (ref $p);
     return [200, [ 'Content-Type' => 'text/html' ], [$p]];
   };
+
+sub top {
+  $h->set_title('Top News - '.$cfg->{SiteName});
+  my $news = get_top_news();
+  $h->page($h->h2('Top News').news_list_to_html($news));
+}
+
+sub latest {
+  $h->set_title('Latest News - '.$cfg->{SiteName});
+  my $news = get_latest_news();
+  $h->page($h->h2('Latest news').news_list_to_html($news));
+}
 
 sub saved {
   my ($start) = @_;
