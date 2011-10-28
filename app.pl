@@ -24,6 +24,7 @@ our $VERSION = '0.1';
 
 our %ct =
   (
+   gif => 'image/gif',
    png => 'image/png',
    js => 'text/javascript',
    css => 'text/css',
@@ -90,7 +91,13 @@ my $app =
         $p = login();
       }
       when ('/logout') {
-        return logout();
+        $p = logout();
+      }
+      when (qr!^/reply/(\d+)/(\d+)$!) {
+        $p = reply($1, $2);
+      }
+      when (qr!^/editcomment/(\d+)/(\d+)$!) {
+        $p = editcomment($1, $2);
       }
       when ('/api/login') {
         $p = api_login();
@@ -256,69 +263,72 @@ sub news {
   );
 }
 
-$todo = q~
-get '/reply/:news_id/:comment_id' do
-    redirect '/login' if !$user
-    news = get_news_by_id(params['news_id'])
-    halt(404,'404 - This news does not exist.') if !news
-    comment = Comments.fetch(params['news_id'],params['comment_id'])
-    halt(404,'404 - This comment does not exist.') if !comment
-    user = get_user_by_id(comment['user_id']) or DeletedUser
-    comment['id'] = params['comment_id']
+sub reply {
+  my ($news_id, $comment_id) = @_;
+  return redirect(302, '/login') unless ($user);
 
-    H.set_title 'Reply to comment - #{SiteName}'
-    H.page {
-        news_to_html(news)+
-        comment_to_html(comment,user,params['news_id'])+
-        H.form(name=>'f') {
-            H.inputhidden(name => 'news_id', value => news['id'])+
-            H.inputhidden(name => 'comment_id', value => -1)+
-            H.inputhidden(name => 'parent_id', value => params['comment_id'])+
-            H.textarea(name => 'comment', cols => 60, rows => 10) {}+H.br+
-            H.button(name => 'post_comment', value => 'Reply')
-        }+H.div(id => 'errormsg'){}+
-        H.script() {'
-            $(function() {
-                $("input[name=post_comment]").click(post_comment);
-            });
-        '}
-    }
-end
+  my $news = get_news_by_id($news_id);
+  return return_error('404 - This news does not exist.') unless ($news);
+  my $comment = $comments->fetch($news_id, $comment_id);
+  return return_error('404 - This comment does not exist.') unless ($comment);
+  my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
+  $comment->{'id'} = $comment_id;
 
-get '/editcomment/:news_id/:comment_id' do
-    redirect '/login' if !$user
-    news = get_news_by_id(params['news_id'])
-    halt(404,'404 - This news does not exist.') if !news
-    comment = Comments.fetch(params['news_id'],params['comment_id'])
-    halt(404,'404 - This comment does not exist.') if !comment
-    user = get_user_by_id(comment['user_id']) or DeletedUser
-    halt(500,'Permission denied.') if $user['id'].to_i != user['id'].to_i
-    comment['id'] = params['comment_id']
+  $h->set_title('Reply to comment - '.$cfg->{SiteName});
+  $h->page(
+    news_to_html($news).
+    comment_to_html($comment, $com_user, $news_id).
+    $h->form(name => 'f',
+      $h->inputhidden(name => 'news_id', value => $news->{'id'}).
+      $h->inputhidden(name => 'comment_id', value => -1).
+      $h->inputhidden(name => 'parent_id', value => $comment_id).
+      $h->textarea(name => 'comment', cols => 60, rows => 10, '').$h->br.
+      $h->button(name => 'post_comment', value => 'Reply')
+    ).$h->div(id => 'errormsg', '').
+    $h->script('
+      $(function() {
+        $("input[name=post_comment]").click(post_comment);
+      });
+    ')
+  );
+}
 
-    H.set_title 'Edit comment - #{SiteName}'
-    H.page {
-        news_to_html(news)+
-        comment_to_html(comment,user,params['news_id'])+
-        H.form(name=>'f') {
-            H.inputhidden(name => 'news_id', value => news['id'])+
-            H.inputhidden(name => 'comment_id',value => params['comment_id'])+
-            H.inputhidden(name => 'parent_id', value => -1)+
-            H.textarea(name => 'comment', cols => 60, rows => 10) {
-                H.entities comment['body']
-            }+H.br+
-            H.button(name => 'post_comment', value => 'Edit')
-        }+H.div(id => 'errormsg'){}+
-        H.note {
-            'Note: to remove the comment remove all the text and press Edit.'
-        }+
-        H.script() {'
-            $(function() {
-                $("input[name=post_comment]").click(post_comment);
-            });
-        '}
-    }
-end
-~;
+sub editcomment {
+  my ($news_id, $comment_id) = @_;
+  return redirect(302, '/login') unless ($user);
+  my $news = get_news_by_id($news_id);
+  return return_error('404 - This news does not exist.') unless ($news);
+  my $comment = $comments->fetch($news_id, $comment_id);
+  return return_error('404 - This comment does not exist.') unless ($comment);
+  my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
+  # TODO: 500 => 403
+  return return_error('Permission denied.', 500)
+    unless ($user->{'id'} == $com_user->{'id'});
+  show $comment->{'id'};
+  show $comment_id;
+  $comment->{'id'} = $comment_id;
+
+  $h->set_title('Edit comment - '.$cfg->{SiteName});
+  $h->page(
+    news_to_html($news).
+    comment_to_html($comment, $user, $news_id).
+    $h->form(name => 'f',
+            $h->inputhidden(name => 'news_id', value => $news->{'id'}).
+            $h->inputhidden(name => 'comment_id',value => $comment_id).
+            $h->inputhidden(name => 'parent_id', value => -1).
+            $h->textarea(name => 'comment', cols => 60, rows => 10,
+                         HTMLGen::entities($comment->{'body'})).
+            $h->br.
+            $h->button(name => 'post_comment', value => 'Edit')
+    ).$h->div(id => 'errormsg', '').
+    $h->note('Note: to remove the comment remove all the text and press Edit.').
+    $h->script('
+      $(function() {
+        $("input[name=post_comment]").click(post_comment);
+      });
+    ')
+  );
+}
 
 sub editnews {
   my ($news_id) = @_;
@@ -488,7 +498,7 @@ sub api_submit {
   }
   # Make sure the URL is about an acceptable protocol, that is
   # http:// or https:// for now.
-  if ($req->param('url') ne '' and ($req->param('url') =~ m!^https?://!)) {
+  if ($req->param('url') ne '' and ($req->param('url') !~ m!^https?://!)) {
     return $j->encode({
       status => 'err',
       error => 'We only accept http:// and https:// news.'
