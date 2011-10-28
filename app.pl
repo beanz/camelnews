@@ -1281,14 +1281,14 @@ sub news_to_html {
   my $domain = news_domain($news);
   my %news = %$news; # Copy the object so we can modify it as we wish.
   $news{'url'} = '/news/'.$news{'id'} unless ($domain);
-  my $upclass;
-  my $downclass;
+  my $upclass = 'uparrow';
+  my $downclass = 'downarrow';
   if ($news{'voted'} == 1) {
-    $upclass = 'uparrow voted';
-    $downclass = 'downarrow disabled';
+    $upclass .= ' voted';
+    $downclass .= ' disabled';
   } elsif ($news{'voted'} == -1) {
-    $downclass = 'downarrow voted';
-    $upclass = 'downarrow disabled';
+    $downclass .= ' voted';
+    $upclass .= ' disabled';
   }
 
   $h->article('data-news-id' => $news{'id'},
