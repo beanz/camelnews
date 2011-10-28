@@ -1379,6 +1379,7 @@ sub insert_comment {
        parent_id => $parent_id,
        user_id => $user_id,
        ctime => time,
+       up => [$user_id],
       };
     my $comment_id = $comments->insert($news_id, $comment);
     return unless ($comment_id);
@@ -1420,6 +1421,14 @@ sub insert_comment {
   }
 }
 
+# Compute the comment score
+sub compute_comment_score {
+  my ($c) = @_;
+  my $upcount = ($c->{'up'} ? scalar @{$c->{'up'}} : 0);
+  my $downcount = ($c->{'down'} ? scalar @{$c->{'down'}} : 0);
+  $upcount-$downcount
+}
+
 sub gravatar {
   my $email = shift || '';
   my $digest = md5_hex($email);
@@ -1433,6 +1442,7 @@ sub comment_to_html {
   my ($c,$u,$news_id) = @_;
   my $indent =
     'margin-left:'.(($c->{'level'}||0)*$cfg->{CommentReplyShift}).'px';
+  my $score = compute_comment_score($c);
 
   if ($c->{'del'}) {
     return $h->article(style => $indent, class => 'commented deleted',
@@ -1470,6 +1480,7 @@ sub comment_to_html {
              $downclass .= ' voted';
              $upclass .= ' disabled';
            }
+           $score.' points '.
            $h->a(href => '#up', class => $upclass, '&#9650;').' '.
            $h->a(href => '#down', class => $downclass, '&#9660;')
          }
