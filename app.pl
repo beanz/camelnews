@@ -20,7 +20,7 @@ unless (caller) {
 }
 
 my $cfg = YAML::LoadFile('app_config.yml');
-our $VERSION = '0.3.0';
+our $VERSION = '0.4.0';
 
 our %ct =
   (
