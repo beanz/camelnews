@@ -66,7 +66,7 @@ my $app =
         $p = top();
       }
       when ('/rss') {
-        $p = rss();
+        $p = [200, ['text/xml'], [rss()]];
       }
       when ('/latest') {
         $p = latest();
