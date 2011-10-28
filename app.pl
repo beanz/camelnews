@@ -83,6 +83,9 @@ my $app =
       when (qr!^/news/(\d+)$!) {
         $p = news($1);
       }
+      when (qr!^/comment/(\d+)/(\d+)$!) {
+        $p = comment($1, $2);
+      }
       when (qr!^/reply/(\d+)/(\d+)$!) {
         $p = reply($1, $2);
       }
@@ -271,6 +274,26 @@ sub news {
          $("input[name=post_comment]").click(post_comment);
        });
      ')
+  );
+}
+
+
+sub comment {
+  my ($news_id, $comment_id) = @_;
+  my $news = get_news_by_id($news_id);
+  return err('404 - This news does not exist.') unless ($news);
+  my $comment = $comments->fetch($news_id, $comment_id);
+  return err('404 - This comment does not exist.') unless ($comment);
+  $h->page(
+    $h->section(id => 'newslist', news_to_html($news)).
+    $h->div(class => "singlecomment",
+      comment_to_html($comment,
+                      (get_user_by_id($comment->{'user_id'}) or
+                       $cfg->{DeletedUser}),
+                      $news->{'news_id'}).
+    # TODO: is render_comments_for_news supposed to be in the <div>?
+    $h->div(class => 'commentreplies', $h->h2('Replies')).
+    render_comments_for_news($news->{'id'},$comment_id)
   );
 }
 
@@ -1332,6 +1355,10 @@ sub comment_to_html {
     return $h->article(style => $indent, class => 'commented deleted',
                        '[comment deleted]');
   }
+  my $show_edit_link = !$c->{'topcomment'} &&
+                       ($user && ($user->{'id'} == $c->{'user_id'})) &&
+                       ($c->{'ctime'} > (time - $cfg->{CommentEditTime}));
+
   $h->article(class => 'comment', style => $indent,
               'data-comment-id' => $news_id.'-'.$c->{'id'},
     $h->span(class => 'avatar', gravatar($u->{'email'})).
@@ -1340,13 +1367,13 @@ sub comment_to_html {
         $h->a(href=>'/user/'.HTMLGen::urlencode($u->{'username'}),
               HTMLGen::entities($u->{'username'}))
         ).' '.str_elapsed($c->{'ctime'}).'. '.
+        $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
+              "link").' '.
         ($user and !$c->{'topcomment'} ?
          $h->a(href => '/reply/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'reply').' ' :
          ' ').
-        (!$c->{'topcomment'} and
-         ($user and ($user->{'id'} == $c->{'user_id'})) and
-         ($c->{'ctime'} > (time - $cfg->{CommentEditTime})) ?
+        ($show_edit_link ?
          $h->a(href => '/editcomment/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'edit').
          (' ('.int(($cfg->{CommentEditTime} - (time-$c->{'ctime'}))/60).
@@ -1357,10 +1384,11 @@ sub comment_to_html {
 }
 
 sub render_comments_for_news {
-  my ($news_id) = @_;
+  my ($news_id, $root) = @_;
+  $root = -1 unless (defined $root);
   my $html = '';
   my %user = ();
-  $comments->render_comments($news_id,
+  $comments->render_comments($news_id, $root,
     sub {
       my ($c) = @_;
       $user->{$c->{'id'}} = get_user_by_id($c->{'user_id'})

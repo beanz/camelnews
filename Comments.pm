@@ -73,7 +73,7 @@ sub del_comment {
 }
 
 sub render_comments {
-  my ($self, $thread_id, $block) = @_;
+  my ($self, $thread_id, $root, $block) = @_;
   my $r = $self->{redis};
   my $key = $self->thread_key($thread_id);
   my %byparent = ();
@@ -86,7 +86,8 @@ sub render_comments {
     my $parent_id = $c->{'parent_id'};
     push @{$byparent{$parent_id}}, $c;
   }
-  $self->render_comments_rec(\%byparent, -1, 0, $block) if ($byparent{-1});
+  $self->render_comments_rec(\%byparent, $root, 0, $block)
+    if ($byparent{-1});
 }
 
 sub render_comments_rec {
