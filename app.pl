@@ -947,7 +947,6 @@ sub allowed_to_post_in_seconds {
 # Redis pipelining.
 sub get_news_by_id {
   my ($news_ids, %opt) = @_;
-  show $news_ids;
   my $result = [];
   if (ref $news_ids) {
     return [] unless (@$news_ids);
@@ -1013,7 +1012,6 @@ sub get_news_by_id {
 # if the vote was duplicated, or user_id or news_id don't match any
 # existing user or news, false is returned.
 sub vote_news {
-  show @_;
   my ($news_id, $user_id, $vote_type) = @_;
   # Fetch news and user
   my $user =
@@ -1370,10 +1368,8 @@ sub get_saved_news {
 # The parent_id is only used for inserts (when comment_id == -1), otherwise
 # is ignored.
 sub insert_comment {
-  show @_;
   my ($news_id, $user_id, $comment_id, $parent_id, $body) = @_;
   my $news = get_news_by_id($news_id);
-  show $news;
   return unless ($news);
   if ($comment_id == -1) {
     my $comment =
@@ -1385,7 +1381,6 @@ sub insert_comment {
        ctime => time,
       };
     my $comment_id = $comments->insert($news_id, $comment);
-    show $comment_id;
     return unless ($comment_id);
     $r->hincrby('news:'.$news_id, 'comments', 1);
     $r->zadd('user.comments:'.$user_id, time, $news_id.'-'.$comment_id);
