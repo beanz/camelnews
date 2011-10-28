@@ -45,18 +45,29 @@ my $app =
                              port => $cfg->{RedisPort}) unless ($r);
     $h = HTMLGen->new(header => \&header, footer => \&footer) unless ($h);
     $j = JSON->new unless ($j);
-    $comments = Comments->new(redis => $r,
-                              namespace => 'comment',
-                              sort_proc => sub {
-                                my ($c, $level) = @_;
-                                if ($level) {
-                                  [ sort { $a->{'ctime'} <=> $b->{'ctime'}
-                                         } @$c ]
-                                } else {
-                                  [ sort { $b->{'ctime'} <=> $a->{'ctime'}
-                                         } @$c ]
-                                }
-                              }) unless ($comments);
+    $comments =
+      Comments->new(redis => $r,
+                    namespace => 'comment',
+                    sort_proc => sub {
+                      my ($c, $level) = @_;
+                      # TODO: calculate scores once
+                      [
+                       sort {
+                         my $ascore = compute_comment_score($a);
+                         my $bscore = compute_comment_score($b);
+                         if ($ascore == $bscore) {
+                           # If score is the same favor newer comments
+                          $b->{'ctime'} <=> $a->{'ctime'}
+                         } else {
+                           # If score is different order by score.
+                           # FIXME: do something smarter favouring
+                           # newest comments but only in the short
+                           # time.
+                           $bscore <=> $ascore
+                         }
+                       } @$c
+                      ]
+                    }) unless ($comments);
     $user = auth_user($req->cookies->{auth});
     increment_karma_if_needed($user) if ($user);
     my $p;
