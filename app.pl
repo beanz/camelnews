@@ -634,7 +634,6 @@ sub api_votenews {
         })
   }
   # Vote the news
-  $vote_type = $vote_type eq 'up' ? +1 : -1;
   if (vote_news($req->param('news_id'), $user->{'id'}, $vote_type)) {
     return $j->encode({ status => 'ok' });
   } else {
@@ -713,7 +712,6 @@ sub api_votecomment {
         })
   }
   # Vote the news
-  $vote_type = $vote_type eq 'up' ? +1 : -1;
   my ($news_id, $comment_id) = split /-/, $req->param('comment_id'), 2;
   if (vote_comment($news_id, $comment_id, $user->{'id'}, $vote_type)) {
     return $j->encode({ status => 'ok' });
@@ -1042,11 +1040,10 @@ sub vote_news {
   # voting from another device/API in the time between the ZSCORE check
   # and the zadd, this will not result in inconsistencies as we will just
   # update the vote time with ZADD.
-  my $vote = ($vote_type == 1 ? 'up' : 'down');
-  if ($r->zadd('news.'.$vote.':'.$news_id, time, $user_id)) {
-    $r->hincrby('news:'.$news_id, $vote, 1);
+  if ($r->zadd('news.'.$vote_type.':'.$news_id, time, $user_id)) {
+    $r->hincrby('news:'.$news_id, $vote_type, 1);
   }
-  $r->zadd('user.saved:'.$user_id, time, $news_id) if ($vote_type == 1);
+  $r->zadd('user.saved:'.$user_id, time, $news_id) if ($vote_type eq 'up');
 
   # Compute the new values of score and karma, updating the news accordingly.
   my $score = compute_news_score($news);
@@ -1128,7 +1125,7 @@ sub insert_news {
             'down' => 0,
             'comments' => 0);
   # The posting user virtually upvoted the news posting it
-  my $rank = vote_news($news_id, $user_id, +1);
+  my $rank = vote_news($news_id, $user_id, 'up');
   # Add the news to the user submitted news
   $r->zadd('user.posted:'.$user_id, $ctime, $news_id);
   # Add the news into the chronological view
