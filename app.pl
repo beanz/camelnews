@@ -725,9 +725,15 @@ sub footer {
   my ($h) = @_;
   my $apisecret =
     $user ? $h->script('var apisecret = "'.$user->{'apisecret'}.'"') : '';
-  $h->footer('PLamer News source code is located '.
-             $h->a(href => 'http://github.com/antirez/lamernews', 'here')
-            ).$apisecret;
+  $h->footer(
+    join ' | ', grep { defined $_ } map {
+      $_->[1] ? $h->a(href => $_->[1], HTMLGen::entities($_->[0])) : undef
+    } (["source code", "http://github.com/antirez/lamernews"],
+       ["rss feed", "/rss"],
+       ["twitter", $cfg->{FooterTwitterLink}],
+       ["google group", $cfg->{FooterGoogleGroupLink}]
+      )
+  ).$apisecret;
 }
 
 ################################################################################

@@ -1,0 +1,30 @@
+---
+CommentEditTime: 7200
+CommentMaxLength: 4096
+CommentReplyShift: 60
+DeletedUser:
+  email: ''
+  id: -1
+  username: deleted_user
+KarmaIncrementAmount: 1
+KarmaIncrementInterval: 10800
+LatestNewsPerPage: 100
+NewsAgePadding: 600
+NewsEditTime: 900
+NewsScoreLogBooster: 2
+NewsScoreLogStart: 10
+NewsSubmissionBreak: 900
+PBKDF2Iterations: 1000
+PasswordMinLength: 8
+PreventRepostTime: 172800
+RankAgingFactor: 1.3
+RedisHost: 127.0.0.1
+RedisPort: 10000
+SavedNewsPerPage: 10
+SiteName: Lamer News
+TopNewsPerPage: 30
+
+# Footer links
+FooterTwitterLink: ~
+FooterGoogleGroupLink: ~
+
