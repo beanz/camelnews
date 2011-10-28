@@ -9,7 +9,7 @@ DeletedUser:
 KarmaIncrementAmount: 1
 KarmaIncrementInterval: 10800
 LatestNewsPerPage: 100
-NewsAgePadding: 600
+NewsAgePadding: 28800
 NewsEditTime: 900
 NewsScoreLogBooster: 2
 NewsScoreLogStart: 10
@@ -18,7 +18,7 @@ PBKDF2Iterations: 1000
 PasswordMinLength: 8
 PreventRepostTime: 172800
 PreventCreateUserTime: 54000
-RankAgingFactor: 1.3
+RankAgingFactor: 1.6
 RedisHost: 127.0.0.1
 RedisPort: 10000
 SavedNewsPerPage: 10

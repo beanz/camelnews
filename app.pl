@@ -1265,7 +1265,9 @@ sub news_to_html {
                   HTMLGen::entities($news{'username'}))
           ).' '.str_elapsed($news{'ctime'}).' '.
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
-        )#+news['score'].to_s+','+news['rank'].to_s+','+compute_news_rank(news).to_s
+    )
+    #.'score: '.$news->{'score'}.' old rank:'.$news->{'rank'}
+    #.' new rank:'.compute_news_rank($news)
   )."\n"
 }
 
