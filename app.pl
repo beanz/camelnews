@@ -107,6 +107,9 @@ my $app =
       when ('/api/submit') { # TODO: post
         $p = api_submit();
       }
+      when ('/api/delnews') { # TODO: post
+        $p = api_delnews();
+      }
       when ('/api/votenews') { # TODO: post
         $p = api_votenews();
       }
@@ -373,11 +376,12 @@ sub editnews {
         $h->label(for => 'text', 'text').
         $h->textarea(id => 'text', name => 'text', cols => 60, rows => 10,
                      HTMLGen::entities($text)).
+        $h->br.
+        $h->checkbox(name => "del", value => "1").'delete this news'.$h->br.
         $h->button(name => 'edit_news', value => 'Edit')
       )
     ).
     $h->div(id => 'errormsg', '').
-    $h->note('Note: to remove the news set an empty title.').
     $h->script('
             $(function() {
                 $("input[name=edit_news]").click(submit);
@@ -537,6 +541,22 @@ sub api_submit {
   }
   show $news_id;
   return $j->encode({ status => 'ok', news_id => $news_id });
+}
+
+sub api_delnews {
+  return $j->encode({status => 'err', error => 'Not authenticated.'})
+    unless ($user);
+  return $j->encode({status => 'err', error => 'Wrong form secret.'})
+    unless (check_api_secret());
+  unless (check_params('news_id')) {
+    return
+      $j->encode({ status => 'err', error => 'Please specify a news title.' });
+  }
+  if (del_news($req->param('news_id'),$user->{'id'})) {
+    return $j->encode({status => 'ok', news_id => -1});
+  }
+  return
+    $j->encode({status => 'err', error => 'News too old or wrong ID/owner.'});
 }
 
 sub api_votenews {
@@ -1070,6 +1090,19 @@ sub edit_news {
   return $news_id;
 }
 
+# Mark an existing news as removed.
+sub del_news {
+  my ($news_id, $user_id) = @_;
+  my $news = get_news_by_id($news_id);
+  return unless ($news and $news->{'user_id'} == $user_id);
+  return unless ($news->{'ctime'} > (time - $cfg->{NewsEditTime}));
+
+  $r->hmset('news:'.$news_id, 'del' ,1);
+  $r->zrem('news.top', $news_id);
+  $r->zrem('news.cron', $news_id);
+  return 1;
+}
+
 # Return the host part of the news URL field.
 # If the url is in the form text:// nil is returned.
 sub news_domain {
@@ -1092,6 +1125,7 @@ sub news_text {
 # the get_news_by_id function.
 sub news_to_html {
   my ($news) = @_;
+  return $h->article(class => 'deleted', '[deleted news]') if ($news->{del});
   my $domain = news_domain($news);
   my %news = %$news; # Copy the object so we can modify it as we wish.
   $news{'url'} = '/news/'.$news{'id'} unless ($domain);
