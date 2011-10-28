@@ -65,6 +65,9 @@ my $app =
       when ('/') {
         $p = top();
       }
+      when ('/rss') {
+        $p = rss();
+      }
       when ('/latest') {
         $p = latest();
       }
@@ -143,6 +146,18 @@ sub top {
   $h->page($h->h2('Top News').news_list_to_html($news));
 }
 
+sub rss {
+  my $news = get_latest_news();
+  $h->rss(version => '2.0', 'xmlns:atom' => 'http://www.w3.org/2005/Atom',
+    $h->channel(
+      $h->title($cfg->{SiteName}).' '.
+      $h->link($req->base).' '.
+      $h->description('Description pending').' '.
+      news_list_to_rss($news)
+    )
+  );
+}
+
 sub latest {
   $h->set_title('Latest News - '.$cfg->{SiteName});
   my $news = get_latest_news();
@@ -195,11 +210,17 @@ sub err {
 }
 
 sub redirect {
-  my ($code, $path, $args) = @_;
+  my $code = shift;
+  my $uri = uri_for(@_);
+  [$code, ['Location' => $uri], []]
+}
+
+sub uri_for {
+  my ($path, $args) = @_;
   my $uri = $req->base;
   $uri->path($uri->path . ($path eq '/' ? '' : $path));
   $uri->query_form(@$args) if $args;
-  [$code, ['Location' => $uri], []]
+  $uri
 }
 
 sub submit {
@@ -1149,6 +1170,27 @@ sub news_text {
   ($su[0] eq 'text:') ? (substr $news->{'url'}, 7) : undef
 }
 
+# Turn the news into its RSS representation
+# This function expects as input a news entry as obtained from
+# the get_news_by_id function.
+sub news_to_rss {
+  my ($news) = @_;
+  my $domain = news_domain($news);
+  my %news = %$news; # Copy the object so we can modify it as we wish.
+  $news{'ln_url'} = uri_for('/news/'.$news{'id'});
+  $news{'url'} = $news{'ln_url'} unless ($domain);
+
+  $h->item(
+    $h->title(HTMLGen::entities($news{'title'})).' '.
+    $h->guid(HTMLGen::entities($news{'url'})).' '.
+    $h->link(HTMLGen::entities($news{'url'})).' '.
+    $h->description(
+      '<![CDATA['.$h->a(href => $news{'ln_url'}, 'Comments').']]>'
+    ).' '.
+    $h->comments(HTMLGen::entities($news{'ln_url'}))
+  )."\n"
+}
+
 # Turn the news into its HTML representation, that is
 # a linked title with buttons to up/down vote plus additional info.
 # This function expects as input a news entry as obtained from
@@ -1185,6 +1227,14 @@ sub news_to_html {
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
         )#+news['score'].to_s+','+news['rank'].to_s+','+compute_news_rank(news).to_s
   )."\n"
+}
+
+# If 'news' is a list of news entries (Ruby hashes with the same fields of
+# the Redis hash representing the news in the DB) this function will render
+# the RSS needed to show this news.
+sub news_list_to_rss {
+  my ($news) = @_;
+  join '', map { news_to_rss($_) } @$news;
 }
 
 # If 'news' is a list of news entries (Ruby hashes with the same fields of
