@@ -846,7 +846,8 @@ sub create_user {
   if ($r->exists('username.to.id:'.(lc $username))) {
     return (undef, 'Username is busy, please try a different one.');
   }
-  if (rate_limit_by_ip(3600*15, 'create_user', $req->address)) {
+  if (rate_limit_by_ip($cfg->{PreventCreateUserTime},
+                       'create_user', $req->address)) {
     return (undef, 'Please wait some time before creating a new user.');
   }
   my $id = $r->incr('users.count');
