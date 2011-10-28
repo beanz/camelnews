@@ -284,16 +284,17 @@ sub comment {
   return err('404 - This news does not exist.') unless ($news);
   my $comment = $comments->fetch($news_id, $comment_id);
   return err('404 - This comment does not exist.') unless ($comment);
+
   $h->page(
     $h->section(id => 'newslist', news_to_html($news)).
-    $h->div(class => "singlecomment",
+    $h->div(class => 'singlecomment',
       comment_to_html($comment,
-                      (get_user_by_id($comment->{'user_id'}) or
+                      (get_user_by_id($comment->{'user_id'}) ||
                        $cfg->{DeletedUser}),
-                      $news->{'news_id'}).
+                      $news->{'news_id'})
+    ).$h->div(class => 'commentreplies', $h->h2('Replies')).
     # TODO: is render_comments_for_news supposed to be in the <div>?
-    $h->div(class => 'commentreplies', $h->h2('Replies')).
-    render_comments_for_news($news->{'id'},$comment_id)
+    render_comments_for_news($news->{'id'}, $comment_id)
   );
 }
 
