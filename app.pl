@@ -123,13 +123,13 @@ my $app =
       when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
         my $ct = $ct{$1};
         if (/\.\./ or !defined $ct) {
-          return return_error('Not found');
+          return err('Not found');
         } else {
-          open my $fh, 'public'.$_ or return return_error('Not found');
+          open my $fh, 'public'.$_ or return err('Not found');
           $p = [ 200, ['Content-Type' => $ct], $fh ]
         }
       }
-      default { $p = return_error('Not found'); }
+      default { $p = err('Not found'); }
     }
     return $p if (ref $p);
     return [200, [ 'Content-Type' => 'text/html' ], [$p]];
@@ -173,7 +173,7 @@ sub login {
   );
 }
 
-sub return_error {
+sub err {
   my ($message, $code, $type) = @_;
   [$code||404,
    ['Content-Type' => $type||'text/plain'],
@@ -227,7 +227,7 @@ sub news {
   my ($news_id) = @_;
   my $news = get_news_by_id($news_id);
   show $news;
-  return return_error('404 - This news does not exist.') unless ($news);
+  return err('404 - This news does not exist.') unless ($news);
   # Show the news text if it is a news without URL.
   my $top_comment = '';
   if (!news_domain($news)) {
@@ -268,9 +268,9 @@ sub reply {
   return redirect(302, '/login') unless ($user);
 
   my $news = get_news_by_id($news_id);
-  return return_error('404 - This news does not exist.') unless ($news);
+  return err('404 - This news does not exist.') unless ($news);
   my $comment = $comments->fetch($news_id, $comment_id);
-  return return_error('404 - This comment does not exist.') unless ($comment);
+  return err('404 - This comment does not exist.') unless ($comment);
   my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
   $comment->{'id'} = $comment_id;
 
@@ -297,12 +297,12 @@ sub editcomment {
   my ($news_id, $comment_id) = @_;
   return redirect(302, '/login') unless ($user);
   my $news = get_news_by_id($news_id);
-  return return_error('404 - This news does not exist.') unless ($news);
+  return err('404 - This news does not exist.') unless ($news);
   my $comment = $comments->fetch($news_id, $comment_id);
-  return return_error('404 - This comment does not exist.') unless ($comment);
+  return err('404 - This comment does not exist.') unless ($comment);
   my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
   # TODO: 500 => 403
-  return return_error('Permission denied.', 500)
+  return err('Permission denied.', 500)
     unless ($user->{'id'} == $com_user->{'id'});
   show $comment->{'id'};
   show $comment_id;
@@ -335,9 +335,9 @@ sub editnews {
   return redirect(302, '/login') unless ($user);
 
   my $news = get_news_by_id($news_id);
-  return return_error('404 - This news does not exist.') unless ($news);
+  return err('404 - This news does not exist.') unless ($news);
   # TODO: 500 => 403?
-  return return_error('Permission denied.', 500)
+  return err('Permission denied.', 500)
     unless ($user->{'id'} == $news->{'user_id'});
 
   my $text;
@@ -381,7 +381,7 @@ sub editnews {
 sub user {
   my ($username) = @_;
   my $u = get_user_by_username($username);
-  return return_error('Non existing user', 404) unless ($u);
+  return err('Non existing user', 404) unless ($u);
   # TODO: pipeline
   my $posted_news = $r->zcard('user.posted:'.$u->{'id'});
   my $posted_comments = $r->zcard('user.comments:'.$u->{'id'});
