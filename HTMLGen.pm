@@ -121,13 +121,13 @@ sub page {
       $self->head(
         $self->title(entities($self->{title})).
         $self->meta(charset => 'utf8').
-        $self->link(href => '/css/style.css?v=1', rel => 'stylesheet',
+        $self->link(href => '/css/style.css?v=5', rel => 'stylesheet',
                     type => 'text/css').
         $self->link(href => '/images/favicon.png', rel => 'shortcut icon').
         $self->script(
           src => '//ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js',
           '').
-        $self->script(src => '/js/app.js?v=1', '')
+        $self->script(src => '/js/app.js?v=5', '')
       ).$self->body(
                     $self->div(class => 'container',
                                $self->_header.
