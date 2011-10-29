@@ -87,6 +87,9 @@ my $app =
       when (qr!^/usercomments/(.*)/(\d+)$!) {
         $p = usercomments($1, $2);
       }
+      when ('/replies') {
+        $p = replies();
+      }
       when ('/login') {
         $p = login();
       }
@@ -233,6 +236,14 @@ sub usercomments {
 
 sub replies {
   return redirect(302, '/login') unless ($user);
+  my ($comments,$count) =
+    get_user_comments($user->{'id'}, 0, $cfg->{SubthreadsInRepliesPage});
+  $r->hset('user:'.$user->{'id'}, 'replies', 0);
+  $h->set_title('Your threads - '.$cfg->{SiteName});
+  $h->page(
+    $h->div(id => 'comments',
+            (join '', map { render_comment_subthread($_) } @$comments))
+  );
 }
 
 sub login {
@@ -365,17 +376,18 @@ sub comment {
 
   $h->page(
     $h->section(id => 'newslist', news_to_html($news)).
-    render_comment_subthread($comment, $comment_id)
+    render_comment_subthread($comment, $h->h2('Replies'))
   );
 }
 
 sub render_comment_subthread {
-  my ($comment, $comment_id) = @_;
+  my ($comment, $sep) = @_;
+  $sep = '' unless (defined $sep);
   $h->div(class => 'singlecomment',
     comment_to_html($comment,
                     get_user_by_id($comment->{'user_id'})||$cfg->{DeletedUser})
-  ).$h->div(class => 'commentreplies', $h->h2('Replies')).
-  render_comments_for_news($comment->{'thread_id'}, $comment_id);
+  ).$h->div(class => 'commentreplies', $sep).
+  render_comments_for_news($comment->{'thread_id'}, $comment->{'id'});
 }
 
 sub reply {
