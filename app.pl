@@ -203,13 +203,13 @@ sub login {
         $h->inputpass(id => 'password', name => 'password').$h->br.
         $h->checkbox(name => 'register', value => '1').
         'create account'.$h->br.
-        $h->button(name => 'do_login', value => 'Login')
+        $h->submit(name => 'do_login', value => 'Login')
       )
     ).
     $h->div(id => 'errormsg', '').
     $h->script('
       $(function() {
-        $("input[name=do_login]").click(login);
+        $("form[name=f]").submit(login);
       });
     ')
   );
