@@ -501,6 +501,12 @@ sub user {
 ###############################################################################
 
 sub api_logout { # TODO: method 'post'
+  unless (check_params('username', 'password')) {
+    return $j->encode({
+      status => 'err',
+      error => 'Username and password are two required fields.'
+    });
+  }
   if ($user and check_api_secret()) {
     update_auth_token($user->{'id'});
     return $j->encode({status => 'ok'});
@@ -731,12 +737,15 @@ sub api_votecomment {
 sub check_params {
   my (@required) = @_;
   foreach my $p (@required) {
-    if ($p =~ m!^:(.*)$!) {
-      return unless (defined $req->param($1));
+    if ($p =~ s!^:!!) {
+      return unless (defined $req->param($p));
     } else {
       my $v = $req->param($p);
       return unless (defined $v and $v ne '');
     }
+    $req->parameters->{$p} =~ s/\s+$// if (exists $req->parameters->{$p});
+    # TODO: what about body_parameters and query_parameters which may be
+    # different hashes
   }
   return 1;
 }
