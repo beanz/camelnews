@@ -557,12 +557,6 @@ sub user {
 ###############################################################################
 
 sub api_logout { # TODO: method 'post'
-  unless (check_params('username', 'password')) {
-    return $j->encode({
-      status => 'err',
-      error => 'Username and password are two required fields.'
-    });
-  }
   if ($user and check_api_secret()) {
     update_auth_token($user->{'id'});
     return $j->encode({status => 'ok'});
