@@ -1558,10 +1558,10 @@ sub render_comments_for_news {
   $comments->render_comments($news_id, $root,
     sub {
       my ($c) = @_;
-      $user->{$c->{'id'}} = get_user_by_id($c->{'user_id'})
-        unless ($user->{$c->{'id'}});
-      $user{$c->{'id'}} = $cfg->{DeletedUser} unless ($user->{$c->{'id'}});
-      $html .= comment_to_html($c, $user->{$c->{'id'}}, $news_id);
+      $user{$c->{'id'}} = get_user_by_id($c->{'user_id'})
+        unless ($user{$c->{'id'}});
+      $user{$c->{'id'}} = $cfg->{DeletedUser} unless ($user{$c->{'id'}});
+      $html .= comment_to_html($c, $user{$c->{'id'}}, $news_id);
     });
   $h->div(id => 'comments', $html);
 }
