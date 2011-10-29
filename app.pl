@@ -70,7 +70,7 @@ my $app =
     $user = auth_user($req->cookies->{auth});
     increment_karma_if_needed($user) if ($user);
     my $p;
-    show $req->path_info;
+    show $req->method.' '.$req->path_info;
     given ($req->path_info) {
       when ('/') {
         $p = top();
@@ -1444,7 +1444,8 @@ sub insert_comment {
             'comment_id' => $comment_id,
             'op' => 'insert',
            }
-    # increment_user_karma_by($user_id, $cfg->{KarmaIncrementComment});
+    # TODO: should this be before return?
+    #increment_user_karma_by($user_id, $cfg->{KarmaIncrementComment});
   }
 
   # If we reached this point the next step is either to update or
