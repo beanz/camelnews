@@ -180,16 +180,23 @@ sub latest {
 sub saved {
   my ($start) = @_;
   return redirect(302, '/login') unless ($user);
-  $start = 0 if ($start < 0);
   $h->set_title('Saved news - '.$cfg->{SiteName});
-  my ($news, $count) = get_saved_news($user->{'id'}, $start);
-  my %paginate = (
-                  start => $start,
-                  count => $count,
-                  perpage => $cfg->{SavedNewsPerPage},
-                  link => '/saved/$',
-                 );
-  $h->page($h->h2('Your saved news').news_list_to_html($news, \%paginate));
+  my %paginate =
+    (
+     get => sub {
+       my ($start, $count) = @_;
+       get_saved_news($user->{'id'}, $start, $count);
+     },
+     render => sub {
+       my ($item) = @_;
+       news_to_html($item);
+     },
+     start => $start,
+     perpage => $cfg->{SavedNewsPerPage},
+     link => '/saved/$',
+    );
+  $h->page($h->h2('Your saved news').
+           $h->section(id => 'newslist', list_items(\%paginate)));
 }
 
 sub login {
@@ -1325,20 +1332,7 @@ sub news_list_to_rss {
 # the HTML needed to show this news.
 sub news_list_to_html {
   my $news = shift;
-  my $paginate = shift;
-
-  my $more_link = '';
-  if ($paginate) {
-    my $last_displayed = $paginate->{start} + $paginate->{perpage};
-    if ($last_displayed < $paginate->{count}) {
-      my $nextpage = $paginate->{link};
-      $nextpage =~ s/\$/$last_displayed/;
-      $more_link = $h->a(href => $nextpage, class => 'more', '[more]');
-    }
-  }
-
-  $h->section(id => 'newslist',
-              (join '', map { news_to_html($_) } @$news).$more_link);
+  $h->section(id => 'newslist', (join '', map { news_to_html($_) } @$news));
 }
 
 # Updating the rank would require some cron job and worker in theory as
@@ -1385,12 +1379,11 @@ sub get_latest_news {
 
 # Get saved news of current user
 sub get_saved_news {
-  my ($user_id, $start) = @_;
-  $start = 0 unless (defined $start);
-  my $count = $r->zcard('user.saved:'.$user_id);
-  my $news_ids = $r->zrevrange('user.saved:'.$user_id,
-                               $start, $start+($cfg->{SavedNewsPerPage}-1));
-  return (get_news_by_id($news_ids), $count);
+  my ($user_id, $start, $count) = @_;
+  my $numitems = $r->zcard('user.saved:'.$user_id);
+  my $news_ids =
+    $r->zrevrange('user.saved:'.$user_id, $start, $start+($count-1));
+  return (get_news_by_id($news_ids), $numitems);
 }
 
 ###############################################################################
@@ -1597,6 +1590,42 @@ sub rate_limit_by_ip {
   return 1 if ($r->exists($key));
   $r->setex($key, $delay, 1);
   return;
+}
+
+# Show list of items with show-more style pagination.
+#
+# The function sole argument is an hash with the following fields:
+#
+# :get     A function accepinng start/count that will return two values:
+#          1) A list of elements to paginate.
+#          2) The total amount of items of this type.
+#
+# :render  A function that given an element obtained with :get will turn
+#          in into a suitable representation (usually HTML).
+#
+# :start   The current start (probably obtained from URL).
+#
+# :perpage Number of items to show per page.
+#
+# :link    A string that is used to obtain the url of the [more] link
+#          replacing '$' with the right value for the next page.
+#
+# Return value: the current page rendering.
+sub list_items {
+  my ($o) = @_;
+  my $aux = '';
+  $o->{start} = 0 if ($o->{start} < 0);
+  my ($items, $count) = $o->{get}->($o->{start}, $o->{perpage});
+  foreach my $n (@$items) {
+    $aux .= $o->{render}->($n);
+  }
+  my $last_displayed = $o->{start} + $o->{perpage};
+  if ($last_displayed < $count) {
+    my $nextpage = $o->{link};
+    $nextpage =~ s/\$/$nextpage/;
+    $aux .= $h->a(href => $nextpage, class => 'more', '[more]')
+  }
+  $aux
 }
 
 $app;
