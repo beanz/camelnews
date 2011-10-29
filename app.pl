@@ -1615,6 +1615,7 @@ sub get_user_comments {
     my ($news_id, $comment_id) = split /-/, $id, 2;
     my $comment = $comments->fetch($news_id, $comment_id);
     if ($comment) {
+      $comment->{'id'} = $comment_id;
       $comment->{'news_id'} = $news_id;
       push @comments, $comment;
     }
