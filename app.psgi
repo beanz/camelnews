@@ -241,6 +241,7 @@ sub replies {
   $r->hset('user:'.$user->{'id'}, 'replies', 0);
   $h->set_title('Your threads - '.$cfg->{SiteName});
   $h->page(
+    $h->h2('Your threads').
     $h->div(id => 'comments',
             (join '', map { render_comment_subthread($_) } @$comments))
   );
