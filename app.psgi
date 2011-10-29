@@ -231,6 +231,10 @@ sub usercomments {
   );
 }
 
+sub replies {
+  return redirect(302, '/login') unless ($user);
+}
+
 sub login {
   $h->set_title('Login - '.$cfg->{SiteName});
   $h->page(
@@ -803,7 +807,7 @@ sub check_api_secret {
 sub replies_link {
   return '' unless ($user);
   my $count = $user->{'replies'} || 0;
-  $h->a(href => 'replies', class => 'replies',
+  $h->a(href => '/replies', class => 'replies',
         'replies'.($count > 0 ? H->sup($count) : ''));
 }
 
