@@ -796,6 +796,17 @@ sub check_api_secret {
     ($req->param('apisecret') eq $user->{'apisecret'})
 }
 
+# Return the HTML for the 'replies' link in the main navigation bar.
+# The link is not shown at all if the user is not logged in, while
+# it is shown with a badge showing the number of replies for logged in
+# users.
+sub replies_link {
+  return '' unless ($user);
+  my $count = $user->{'replies'} || 0;
+  $h->a(href => 'replies', class => 'replies',
+        'replies'.($count > 0 ? H->sup($count) : ''));
+}
+
 sub header {
   my ($h) = @_;
   my @navitems =
@@ -807,7 +818,7 @@ sub header {
   my $navbar =
     $h->nav(join("\n",
                  map { $h->a(href => $_->[1], HTMLGen::entities($_->[0]))
-                     } @navitems));
+                     } @navitems).replies_link());
   my $rnavbar =
     $h->nav(id => 'account',
             ( $user ?
@@ -1452,6 +1463,10 @@ sub insert_comment {
   my $news = get_news_by_id($news_id);
   return unless ($news);
   if ($comment_id == -1) {
+    if ($parent_id != -1) {
+      my $p = $comments->fetch($news_id, $parent_id);
+      return unless ($p);
+    }
     my $comment =
       {
        score => 0,
