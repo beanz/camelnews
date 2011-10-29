@@ -997,7 +997,7 @@ sub get_news_by_id {
   foreach (@news) { # TODO: pipeline?
     # Adjust rank if too different from the real-time value.
     my %h = @$_;
-    # TODO:  update_news_rank_if_needed(hash) if opt[:update_rank]
+    update_news_rank_if_needed(\%h) if ($opt{update_rank});
     push @result, \%h;
   }
 
@@ -1342,7 +1342,6 @@ $todo = q~
               join '', map { news_to_html($_) } @$news);
 }
 
-$todo = q~
 # Updating the rank would require some cron job and worker in theory as
 # it is time dependent and we don't want to do any sorting operation at
 # page view time. But instead what we do is to compute the rank from the
@@ -1351,16 +1350,15 @@ $todo = q~
 # only for the news where this makes sense, that is, top news.
 #
 # Note: this function can be called in the context of redis.pipelined {...}
-def update_news_rank_if_needed(n)
-    real_rank = compute_news_rank(n)
-    if (real_rank-n['rank'].to_f).abs > 0.001
-        $r.hmset('news:#{n['id']}','rank',real_rank)
-        $r.zadd('news.top',real_rank,n['id'])
-        n['rank'] = real_rank.to_s
-    end
-end
-
-~;
+sub update_news_rank_if_needed {
+  my ($n) = @_;
+  my $real_rank = compute_news_rank($n);
+  if (abs($real_rank-$n->{'rank'}) > 0.001) {
+    $r->hmset('news:'.$n->{'id'}, 'rank', $real_rank);
+    $r->zadd('news.top', $real_rank, $n->{'id'});
+    $n->{'rank'} = $real_rank;
+  }
+}
 
 # Generate the main page of the web site, the one where news are ordered by
 # rank.
