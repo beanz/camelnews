@@ -741,12 +741,6 @@ sub check_params {
   return 1;
 }
 
-# TODO: unused?
-#def check_params_or_halt *required
-#    return if check_parameters *required
-#    halt 500, H.h1{'500'}+H.p{'Missing parameters'}
-#end
-
 sub check_api_secret {
   return unless ($user);
   $req->param('apisecret') and
