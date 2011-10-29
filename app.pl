@@ -327,7 +327,6 @@ sub comment {
                        $cfg->{DeletedUser}),
                       $news->{'news_id'})
     ).$h->div(class => 'commentreplies', $h->h2('Replies')).
-    # TODO: is render_comments_for_news supposed to be in the <div>?
     render_comments_for_news($news->{'id'}, $comment_id)
   );
 }
@@ -370,7 +369,6 @@ sub editcomment {
   my $comment = $comments->fetch($news_id, $comment_id);
   return err('404 - This comment does not exist.') unless ($comment);
   my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
-  # TODO: 500 => 401
   return err('Permission denied.', 500)
     unless ($user->{'id'} == $com_user->{'id'});
   show $comment->{'id'};
@@ -405,7 +403,6 @@ sub editnews {
 
   my $news = get_news_by_id($news_id);
   return err('404 - This news does not exist.') unless ($news);
-  # TODO: 500 => 401?
   return err('Permission denied.', 500)
     unless ($user->{'id'} == $news->{'user_id'});
 
