@@ -435,7 +435,7 @@ sub editnews {
         $h->textarea(id => 'text', name => 'text', cols => 60, rows => 10,
                      HTMLGen::entities($text)).
         $h->br.
-        $h->checkbox(name => "del", value => "1").'delete this news'.$h->br.
+        $h->checkbox(name => 'del', value => '1').'delete this news'.$h->br.
         $h->button(name => 'edit_news', value => 'Edit')
       )
     ).
@@ -792,10 +792,10 @@ sub footer {
   $h->footer(
     join ' | ', grep { defined $_ } map {
       $_->[1] ? $h->a(href => $_->[1], HTMLGen::entities($_->[0])) : undef
-    } (["source code", "http://github.com/antirez/lamernews"],
-       ["rss feed", "/rss"],
-       ["twitter", $cfg->{FooterTwitterLink}],
-       ["google group", $cfg->{FooterGoogleGroupLink}]
+    } (['source code', 'http://github.com/antirez/lamernews'],
+       ['rss feed', '/rss'],
+       ['twitter', $cfg->{FooterTwitterLink}],
+       ['google group', $cfg->{FooterGoogleGroupLink}]
       )
   ).$apisecret;
 }
