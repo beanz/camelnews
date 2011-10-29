@@ -85,12 +85,12 @@ sub list {
 
 sub _header {
   my ($self) = @_;
-  $self->{header}->($self, $self->{user});
+  $self->{header}->($self);
 }
 
 sub _footer {
   my ($self) = @_;
-  $self->{footer}->($self, $self->{user});
+  $self->{footer}->($self);
 }
 
 sub set_title {
