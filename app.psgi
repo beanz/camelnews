@@ -69,91 +69,98 @@ my $app =
                     }) unless ($comments);
     $user = auth_user($req->cookies->{auth});
     increment_karma_if_needed($user) if ($user);
-    my $p;
+    my $p = err('Not found');
     show $req->method.' '.$req->path_info;
-    given ($req->path_info) {
-      when ('/') {
-        $p = top();
-      }
-      when ('/rss') {
-        $p = [200, ['text/xml'], [rss()]];
-      }
-      when ('/latest') {
-        $p = latest();
-      }
-      when (qr!^/saved/(\d+)$!) {
-        $p = saved($1);
-      }
-      when (qr!^/usercomments/(.*)/(\d+)$!) {
-        $p = usercomments($1, $2);
-      }
-      when ('/replies') {
-        $p = replies();
-      }
-      when ('/login') {
-        $p = login();
-      }
-      when ('/submit') {
-        $p = submit();
-      }
-      when ('/logout') {
-        $p = logout();
-      }
-      when (qr!^/news/(\d+)$!) {
-        $p = news($1);
-      }
-      when (qr!^/comment/(\d+)/(\d+)$!) {
-        $p = comment($1, $2);
-      }
-      when (qr!^/reply/(\d+)/(\d+)$!) {
-        $p = reply($1, $2);
-      }
-      when (qr!^/editcomment/(\d+)/(\d+)$!) {
-        $p = editcomment($1, $2);
-      }
-      when (qr!^/editnews/(\d+)$!) {
-        $p = editnews($1);
-      }
-      when (qr!^/user/(.+)$!) {
-        $p = user($1);
-      }
-      when ('/api/logout') { # TODO: post
-        $p = api_logout();
-      }
-      when ('/api/login') {
-        $p = api_login();
-      }
-      when ('/api/create_account') { # TODO: post
-        $p = api_create_account();
-      }
-      when ('/api/submit') { # TODO: post
-        $p = api_submit();
-      }
-      when ('/api/delnews') { # TODO: post
-        $p = api_delnews();
-      }
-      when ('/api/votenews') { # TODO: post
-        $p = api_votenews();
-      }
-      when ('/api/postcomment') { # TODO: post
-        $p = api_postcomment();
-      }
-      when ('/api/updateprofile') { # TODO: post
-        $p = api_updateprofile();
-      }
-      when ('/api/votecomment') { # TODO: post
-        $p = api_votecomment();
-      }
-      when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
-        my $ct = $ct{$1};
-        if (/\.\./ or !defined $ct) {
-          return err('Not found');
-        } else {
-          open my $fh, 'public'.$_ or return err('Not found');
-          $p = [ 200, ['Content-Type' => $ct], $fh ]
+    given ($req->method) {
+      when ('GET') {
+        given ($req->path_info) {
+          when ('/') {
+            $p = top();
+          }
+          when ('/rss') {
+            $p = [200, ['text/xml'], [rss()]];
+          }
+          when ('/latest') {
+            $p = latest();
+          }
+          when (qr!^/saved/(\d+)$!) {
+            $p = saved($1);
+          }
+          when (qr!^/usercomments/(.*)/(\d+)$!) {
+            $p = usercomments($1, $2);
+          }
+          when ('/replies') {
+            $p = replies();
+          }
+          when ('/login') {
+            $p = login();
+          }
+          when ('/submit') {
+            $p = submit();
+          }
+          when ('/logout') {
+            $p = logout();
+          }
+          when (qr!^/news/(\d+)$!) {
+            $p = news($1);
+          }
+          when (qr!^/comment/(\d+)/(\d+)$!) {
+            $p = comment($1, $2);
+          }
+          when (qr!^/reply/(\d+)/(\d+)$!) {
+            $p = reply($1, $2);
+          }
+          when (qr!^/editcomment/(\d+)/(\d+)$!) {
+            $p = editcomment($1, $2);
+          }
+          when (qr!^/editnews/(\d+)$!) {
+            $p = editnews($1);
+          }
+          when (qr!^/user/(.+)$!) {
+            $p = user($1);
+          }
+          when ('/api/login') {
+            $p = api_login();
+          }
+          when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
+            my $ct = $ct{$1};
+            if (/\.\./ or !defined $ct) {
+              return err('Not found');
+            } else {
+              open my $fh, 'public'.$_ or return err('Not found');
+              $p = [ 200, ['Content-Type' => $ct], $fh ]
+            }
+          }
         }
       }
-      default { $p = err('Not found'); }
+      when ('POST') {
+        given ($req->path_info) {
+          when ('/api/logout') {
+            $p = api_logout();
+          }
+          when ('/api/create_account') {
+            $p = api_create_account();
+          }
+          when ('/api/submit') {
+            $p = api_submit();
+          }
+          when ('/api/delnews') {
+            $p = api_delnews();
+          }
+          when ('/api/votenews') {
+            $p = api_votenews();
+          }
+          when ('/api/postcomment') {
+            $p = api_postcomment();
+          }
+          when ('/api/updateprofile') {
+            $p = api_updateprofile();
+          }
+          when ('/api/votecomment') {
+            $p = api_votecomment();
+          }
+        }
+      }
     }
     return $p if (ref $p);
     return [200, [ 'Content-Type' => 'text/html' ], [$p]];
@@ -557,7 +564,7 @@ sub user {
 # API implementation
 ###############################################################################
 
-sub api_logout { # TODO: method 'post'
+sub api_logout {
   if ($user and check_api_secret()) {
     update_auth_token($user->{'id'});
     return $j->encode({status => 'ok'});
