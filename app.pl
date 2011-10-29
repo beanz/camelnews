@@ -714,7 +714,8 @@ sub api_votecomment {
   # Vote the news
   my ($news_id, $comment_id) = split /-/, $req->param('comment_id'), 2;
   if (vote_comment($news_id, $comment_id, $user->{'id'}, $vote_type)) {
-    return $j->encode({ status => 'ok' });
+    return $j->encode({ status => 'ok',
+                        comment_id => $req->param('comment_id') });
   } else {
     return $j->encode({ status => 'err',
                         error => 'Invalid parameters or duplicated vote.' });
