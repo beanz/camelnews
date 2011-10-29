@@ -29,7 +29,11 @@ sub fetch {
   my ($self, $thread_id, $comment_id) = @_;
   my $key = $self->thread_key($thread_id);
   my $json = $self->{redis}->hget($key, $comment_id);
-  $json ? $self->{json}->decode($json) : undef;
+  return unless ($json);
+  $json = $self->{json}->decode($json);
+  $json->{'thread_id'} = $thread_id;
+  $json->{'id'} = $comment_id;
+  $json
 }
 
 sub insert {
@@ -83,6 +87,7 @@ sub render_comments {
     next if ($id eq 'nextid');
     my $c = $self->{json}->decode($comment);
     $c->{id} = $id;
+    $c->{thread_id} = $thread_id;
     my $parent_id = $c->{'parent_id'};
     push @{$byparent{$parent_id}}, $c;
   }

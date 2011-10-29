@@ -218,7 +218,7 @@ sub usercomments {
      render => sub {
        my ($comment) = @_;
        my $u = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
-       comment_to_html($comment, $u, $comment->{'news_id'});
+       comment_to_html($comment, $u);
      },
      start => $start,
      perpage => $cfg->{UserCommentsPerPage},
@@ -323,14 +323,15 @@ sub news {
   my $top_comment = '';
   if (!news_domain($news)) {
     my $c = {
-            'body' => news_text($news),
-            'ctime' => $news->{'ctime'},
-            'user_id' => $news->{'user_id'},
-            'topcomment' => 1,
-            'id' => 0,
+             'body' => news_text($news),
+             'ctime' => $news->{'ctime'},
+             'user_id' => $news->{'user_id'},
+             'thread_id' => $news->{'id'},
+             'topcomment' => 1,
+             'id' => 0,
             };
     my $user = get_user_by_id($news->{'user_id'}) || $cfg->{DeletedUser};
-    $top_comment = $h->topcomment(comment_to_html($c,$user,$news->{'id'}));
+    $top_comment = $h->topcomment(comment_to_html($c, $user));
   }
   $h->set_title(HTMLGen::entities($news->{'title'}).' - '.$cfg->{SiteName});
   $h->page(
@@ -364,14 +365,17 @@ sub comment {
 
   $h->page(
     $h->section(id => 'newslist', news_to_html($news)).
-    $h->div(class => 'singlecomment',
-      comment_to_html($comment,
-                      (get_user_by_id($comment->{'user_id'}) ||
-                       $cfg->{DeletedUser}),
-                      $news->{'news_id'})
-    ).$h->div(class => 'commentreplies', $h->h2('Replies')).
-    render_comments_for_news($news->{'id'}, $comment_id)
+    render_comment_subthread($comment, $comment_id)
   );
+}
+
+sub render_comment_subthread {
+  my ($comment, $comment_id) = @_;
+  $h->div(class => 'singlecomment',
+    comment_to_html($comment,
+                    get_user_by_id($comment->{'user_id'})||$cfg->{DeletedUser})
+  ).$h->div(class => 'commentreplies', $h->h2('Replies')).
+  render_comments_for_news($comment->{'thread_id'}, $comment_id);
 }
 
 sub reply {
@@ -383,12 +387,11 @@ sub reply {
   my $comment = $comments->fetch($news_id, $comment_id);
   return err('404 - This comment does not exist.') unless ($comment);
   my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
-  $comment->{'id'} = $comment_id;
 
   $h->set_title('Reply to comment - '.$cfg->{SiteName});
   $h->page(
     news_to_html($news).
-    comment_to_html($comment, $com_user, $news_id).
+    comment_to_html($comment, $com_user).
     $h->form(name => 'f',
       $h->inputhidden(name => 'news_id', value => $news->{'id'}).
       $h->inputhidden(name => 'comment_id', value => -1).
@@ -414,14 +417,11 @@ sub editcomment {
   my $com_user = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
   return err('Permission denied.', 500)
     unless ($user->{'id'} == $com_user->{'id'});
-  show $comment->{'id'};
-  show $comment_id;
-  $comment->{'id'} = $comment_id;
 
   $h->set_title('Edit comment - '.$cfg->{SiteName});
   $h->page(
     news_to_html($news).
-    comment_to_html($comment, $user, $news_id).
+    comment_to_html($comment, $user).
     $h->form(name => 'f',
             $h->inputhidden(name => 'news_id', value => $news->{'id'}).
             $h->inputhidden(name => 'comment_id',value => $comment_id).
@@ -1540,10 +1540,11 @@ sub gravatar {
 # 'c' is the comment representation as a Ruby hash.
 # 'u' is the user, obtained from the user_id by the caller.
 sub comment_to_html {
-  my ($c,$u,$news_id) = @_;
+  my ($c, $u) = @_;
   my $indent =
     'margin-left:'.(($c->{'level'}||0)*$cfg->{CommentReplyShift}).'px';
   my $score = compute_comment_score($c);
+  my $news_id = $c->{'thread_id'};
 
   if ($c->{'del'}) {
     return $h->article(style => $indent, class => 'commented deleted',
@@ -1607,7 +1608,7 @@ sub render_comments_for_news {
       $user{$c->{'id'}} = get_user_by_id($c->{'user_id'})
         unless ($user{$c->{'id'}});
       $user{$c->{'id'}} = $cfg->{DeletedUser} unless ($user{$c->{'id'}});
-      $html .= comment_to_html($c, $user{$c->{'id'}}, $news_id);
+      $html .= comment_to_html($c, $user{$c->{'id'}});
     });
   $h->div(id => 'comments', $html);
 }
@@ -1633,11 +1634,7 @@ sub get_user_comments {
   foreach my $id (@$ids) {
     my ($news_id, $comment_id) = split /-/, $id, 2;
     my $comment = $comments->fetch($news_id, $comment_id);
-    if ($comment) {
-      $comment->{'id'} = $comment_id;
-      $comment->{'news_id'} = $news_id;
-      push @comments, $comment;
-    }
+    push @comments, $comment if ($comment);
   }
   (\@comments, $numitems);
 }
