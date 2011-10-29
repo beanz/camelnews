@@ -1327,19 +1327,18 @@ sub news_list_to_html {
   my $news = shift;
   my $paginate = shift;
 
-$todo = q~
-        if paginate
-            last_displayed = paginate[:start]+paginate[:perpage]
-            if last_displayed < paginate[:count]
-                nextpage = paginate[:link].sub('$',
-                           (paginate[:start]+paginate[:perpage]).to_s)
-                aux << H.a(:href => nextpage,:class=> 'more') {'[more]'}
-            end
-        end
-        aux
-~;
+  my $more_link = '';
+  if ($paginate) {
+    my $last_displayed = $paginate->{start} + $paginate->{perpage};
+    if ($last_displayed < $paginate->{count}) {
+      my $nextpage = $paginate->{link};
+      $nextpage =~ s/\$/$last_displayed/;
+      $more_link = $h->a(href => $nextpage, class => 'more', '[more]');
+    }
+  }
+
   $h->section(id => 'newslist',
-              join '', map { news_to_html($_) } @$news);
+              (join '', map { news_to_html($_) } @$news).$more_link);
 }
 
 # Updating the rank would require some cron job and worker in theory as
