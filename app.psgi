@@ -814,7 +814,7 @@ sub replies_link {
   return '' unless ($user);
   my $count = $user->{'replies'} || 0;
   $h->a(href => '/replies', class => 'replies',
-        'replies'.($count > 0 ? H->sup($count) : ''));
+        'replies'.($count > 0 ? $h->sup($count) : ''));
 }
 
 sub header {
