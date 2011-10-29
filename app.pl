@@ -84,6 +84,9 @@ my $app =
       when (qr!^/saved/(\d+)$!) {
         $p = saved($1);
       }
+      when (qr!^/usercomments/(.*)/(\d+)$!) {
+        $p = usercomments($1, $2);
+      }
       when ('/login') {
         $p = login();
       }
@@ -197,6 +200,35 @@ sub saved {
     );
   $h->page($h->h2('Your saved news').
            $h->section(id => 'newslist', list_items(\%paginate)));
+}
+
+sub usercomments {
+  my ($username, $start) = @_;
+  my $u = get_user_by_username($username);
+  return err('Non existing user', 404) unless ($u);
+
+  $h->set_title(HTMLGen::entities($u->{'username'}).' comments - '.
+                $cfg->{SiteName});
+  my %paginate =
+    (
+     get => sub {
+       my ($start, $count) = @_;
+       get_user_comments($u->{'id'}, $start, $count);
+     },
+     render => sub {
+       my ($comment) = @_;
+       my $u = get_user_by_id($comment->{'user_id'}) || $cfg->{DeletedUser};
+       comment_to_html($comment, $u, $comment->{'news_id'});
+     },
+     start => $start,
+     perpage => $cfg->{UserCommentsPerPage},
+     link => '/usercomments/'.HTMLGen::urlencode($u->{'username'}).'/$',
+    );
+
+  $h->page(
+    $h->h2(HTMLGen::entities($u->{'username'}),' comments').
+    $h->div(id => 'comments', list_items(\%paginate))
+  );
 }
 
 sub login {
@@ -473,7 +505,11 @@ sub user {
         $h->li($h->b('karma ').$u->{'karma'}.' points').
         $h->li($h->b('posted news ').$posted_news).
         $h->li($h->b('posted comments ').$posted_comments).
-        ($owner ? $h->li($h->a(href => '/saved/0','saved news')) : '')
+        ($owner ? $h->li($h->a(href => '/saved/0','saved news')) : '').
+        $h->li(
+          $h->a(
+            href=>'/usercomments/'.HTMLGen::urlencode($u->{'username'}).'/0',
+            'user comments'))
       )
     ).($owner ?
        $h->br.
@@ -1565,6 +1601,25 @@ sub vote_comment {
   return if (grep { $_ eq $user_id } @$varray);
   push @$varray, $user_id;
   return $comments->edit($news_id, $comment_id, { $vote_type => $varray });
+}
+
+# Get comments in chronological order for the specified user in the
+# specified range.
+sub get_user_comments {
+  my ($user_id, $start, $count) = @_;
+  my $numitems = $r->zcard('user.comments:'.$user_id);
+  my $ids = $r->zrevrange('user.comments:'.$user_id,
+                          $start, $start+($count-1));
+  my @comments = ();
+  foreach my $id (@$ids) {
+    my ($news_id, $comment_id) = split /-/, $id, 2;
+    my $comment = $comments->fetch($news_id, $comment_id);
+    if ($comment) {
+      $comment->{'news_id'} = $news_id;
+      push @comments, $comment;
+    }
+  }
+  (\@comments, $numitems);
 }
 
 ###############################################################################
