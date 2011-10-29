@@ -512,7 +512,7 @@ sub user {
   my $owner = $user && ($user->{'id'} == $u->{'id'});
   $h->page(
     $h->div(class => 'userinfo',
-      $h->span(class => 'avatar', gravatar($u->{'email'})).' '.
+      avatar($u->{'email'}).' '.
       $h->h2(HTMLGen::entities($u->{'username'})).
       $h->pre(HTMLGen::entities($u->{'about'})).
       $h->ul(
@@ -1536,10 +1536,11 @@ sub compute_comment_score {
   $upcount-$downcount
 }
 
-sub gravatar {
+sub avatar {
   my $email = shift || '';
   my $digest = md5_hex($email);
-  $h->img(src=>'http://gravatar.com/avatar/'.$digest.'?s=48&d=mm')
+  $h->span(class => 'avatar',
+           $h->img(src=>'http://gravatar.com/avatar/'.$digest.'?s=48&d=mm'))
 }
 
 # Render a comment into HTML.
@@ -1562,7 +1563,7 @@ sub comment_to_html {
 
   $h->article(class => 'comment', style => $indent,
               'data-comment-id' => $news_id.'-'.$c->{'id'},
-    $h->span(class => 'avatar', gravatar($u->{'email'})).
+    avatar($u->{'email'}).
     $h->span(class => 'info',
       $h->span(class => 'username',
         $h->a(href=>'/user/'.HTMLGen::urlencode($u->{'username'}),
