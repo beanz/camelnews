@@ -81,7 +81,10 @@ my $app =
             $p = [200, ['text/xml'], [rss()]];
           }
           when ('/latest') {
-            $p = latest();
+            return redirect(302, '/latest/0');
+          }
+          when (qr!^/latest/(\d+)$!) {
+            $p = latest($1);
           }
           when (qr!^/saved/(\d+)$!) {
             $p = saved($1);
@@ -173,7 +176,7 @@ sub top {
 }
 
 sub rss {
-  my $news = get_latest_news();
+  my ($news, $count) = get_latest_news();
   $h->rss(version => '2.0', 'xmlns:atom' => 'http://www.w3.org/2005/Atom',
     $h->channel(
       $h->title($cfg->{SiteName}).' '.
@@ -185,9 +188,20 @@ sub rss {
 }
 
 sub latest {
+  my ($start) = @_;
   $h->set_title('Latest News - '.$cfg->{SiteName});
-  my $news = get_latest_news();
-  $h->page($h->h2('Latest news').news_list_to_html($news));
+  my %paginate =
+    (
+     get => sub { my ($start, $count) = @_; get_latest_news($start, $count); },
+     render => sub { my ($item) = @_; news_to_html($item); },
+     start => $start,
+     perpage => $cfg->{LatestNewsPerPage},
+     link => '/latest/$',
+    );
+  $h->page(
+    $h->h2('Latest news').
+    $h->section(id => 'newslist', list_items(\%paginate))
+  );
 }
 
 sub saved {
@@ -831,7 +845,7 @@ sub header {
   my @navitems =
     (
      ['top' => '/'],
-     ['latest' => '/latest'],
+     ['latest' => '/latest/0'],
      ['submit' => '/submit'],
     );
   my $navbar =
@@ -1477,8 +1491,12 @@ sub get_top_news {
 
 # Get news in chronological order.
 sub get_latest_news {
-  my $news_ids = $r->zrevrange('news.cron', 0, $cfg->{LatestNewsPerPage}-1);
-  my $result = get_news_by_id($news_ids, update_rank => 1);
+ my ($start, $count) = @_;
+ $start = 0 unless (defined $start);
+ $count = $cfg->{LatestNewsPerPage} unless (defined $count);
+ my $numitems = $r->zcard('news.cron');
+ my $news_ids = $r->zrevrange('news.cron', $start, $start+($count-1));
+ return (get_news_by_id($news_ids, update_rank => 1), $numitems);
 }
 
 # Get saved news of current user
