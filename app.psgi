@@ -293,7 +293,8 @@ sub redirect {
 sub uri_for {
   my ($path, $args) = @_;
   my $uri = $req->base;
-  $uri->path($uri->path . ($path eq '/' ? '' : $path));
+  $path =~ s!^/!! if ($uri->path =~ m!/$!);
+  $uri->path($uri->path.$path);
   $uri->query_form(@$args) if $args;
   $uri
 }
