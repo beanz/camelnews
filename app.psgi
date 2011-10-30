@@ -128,6 +128,9 @@ my $app =
           when (qr!^/api/getnews/(\w+)/(\d+)/(\d+)$!) {
             $p = api_getnews($1, $2, $3);
           }
+          when (qr!^/api/getcomments/(\d+)$!) {
+            $p = api_getcomments($1);
+          }
           when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
             my $ct = $ct{$1};
             if (/\.\./ or !defined $ct) {
@@ -821,6 +824,39 @@ sub api_getnews {
     }
   }
   return $j->encode({ status => 'ok', news => $news, count => $numitems });
+}
+
+sub api_getcomments {
+  my ($news_id) = @_;
+  return $j->encode({ status => 'err', error => 'Wrong news ID.' })
+    unless (get_news_by_id($news_id));
+  my $thread = $comments->fetch_thread($news_id);
+  my $top_comments = [];
+  foreach (@$thread) {
+    my ($parent, $replies) = @$_;
+    if ($parent == -1) {
+      $top_comments = $replies;
+    }
+    foreach my $r (@$replies) {
+      my $u = get_user_by_id($r->{'user_id'}) || $cfg->{DeletedUser};
+      $r->{'username'} = $u->{'username'};
+      $r->{'replies'} = $thread->{$r->{'id'}} || [];
+      if ($r->{'up'}) {
+        $r->{'voted'} = 'up'
+          if ($user && (grep { $_ eq $user->{'id'} } @{$r->{'up'}}));
+        $r->{'up'} = @{$r->{'up'}};
+      }
+      if ($r->{'down'}) {
+        $r->{'voted'} = 'down'
+          if ($user && (grep { $_ eq $user->{'id'} } @{$r->{'down'}}));
+        $r->{'down'} = @{$r->{'down'}};
+      }
+      foreach my $f (qw/id thread_id score parent_id user_id/) {
+        delete $r->{$f};
+      }
+    }
+  }
+  return $j->encode({ status => 'ok', comments => $top_comments });
 }
 
 # Check that the list of parameters specified exist.

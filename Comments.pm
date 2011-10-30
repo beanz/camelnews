@@ -76,8 +76,8 @@ sub del_comment {
   $self->edit($thread_id, $comment_id, {"del" => 1});
 }
 
-sub render_comments {
-  my ($self, $thread_id, $root, $block) = @_;
+sub fetch_thread {
+  my ($self, $thread_id) = @_;
   my $r = $self->{redis};
   my $key = $self->thread_key($thread_id);
   my %byparent = ();
@@ -91,8 +91,15 @@ sub render_comments {
     my $parent_id = $c->{'parent_id'};
     push @{$byparent{$parent_id}}, $c;
   }
-  $self->render_comments_rec(\%byparent, $root, 0, $block)
-    if ($byparent{-1});
+  \%byparent;
+}
+
+sub render_comments {
+  my ($self, $thread_id, $root, $block) = @_;
+  $root //= -1;
+  my $byparent = $self->fetch_thread($thread_id);
+  $self->render_comments_rec($byparent, $root, 0, $block)
+    if (exists $byparent->{-1});
 }
 
 sub render_comments_rec {
