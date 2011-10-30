@@ -19,7 +19,7 @@ unless (caller) {
 }
 
 my $cfg = do 'app_config.pl' or die "Config file error: $@\n";
-our $VERSION = '0.7.0';
+our $VERSION = '0.8.0';
 
 our %ct =
   (
