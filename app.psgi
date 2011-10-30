@@ -172,7 +172,12 @@ my $app =
       }
     }
     return $p if (ref $p);
-    return [200, [ 'Content-Type' => 'text/html' ], [$p]];
+    return [200,
+            [
+             'Content-Type' => ($req->path_info =~ m!^/api/! ?
+                                'application/json' : 'text/html'),
+            ],
+            [$p]];
   };
 
 sub top {
