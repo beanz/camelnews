@@ -1608,6 +1608,21 @@ sub avatar {
            $h->img(src=>'http://gravatar.com/avatar/'.$digest.'?s=48&d=mm'))
 }
 
+# Given a string returns the same string with all the urls converted into
+# HTML links. We try to handle the case of an url that is followed by a period
+# Like in "I suggest http://google.com." excluding the final dot from the link.
+sub urls_to_links {
+  my ($s) = @_;
+  my $urls =
+    qr/((https?:\/\/|www\.)([-\w\.]+)+(:\d+)?(\/([\w\/_\.]*(\?\S+)?)?)?)/;
+  $s =~
+    s!$urls!my $u=$1;
+            $u =~ s/(\.)$//
+              ? '<a href="'.$u.'">'.$u.'</a>.'
+              : '<a href="'.$u.'">'.$u.'</a>'!ge;
+  $s
+}
+
 # Render a comment into HTML.
 # 'c' is the comment representation as a Ruby hash.
 # 'u' is the user, obtained from the user_id by the caller.
@@ -1665,7 +1680,10 @@ sub comment_to_html {
          (' ('.int(($cfg->{CommentEditTime} - (time-$c->{'ctime'}))/60).
           ' minutes left)') :
          '')
-    ).$h->pre(HTMLGen::entities($c->{'body'})) # TODO: .strip
+    ).
+    $h->pre(
+      urls_to_links(HTMLGen::entities($c->{'body'})) # TODO: .strip
+    )
   );
 }
 
