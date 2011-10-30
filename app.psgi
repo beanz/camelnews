@@ -328,9 +328,16 @@ sub submit {
         $h->form(name => 'f',
           $h->inputhidden(name => 'news_id', value => -1).
           $h->label(for => 'title', 'title').
+          $h->inputtext(id => 'title', name => 'title', size => 80,
+                        value => ($req->param('t') ?
+                                  HTMLGen::entities($req->param('t')) :
+                                  '')).$h->br.
           $h->inputtext(id => 'title', name => 'title', size => 80).$h->br.
           $h->label(for => 'url', 'url').$h->br.
-          $h->inputtext(id => 'url', name => 'url', size => 60).$h->br.
+          $h->inputtext(id => 'url', name => 'url', size => 60,
+                        value => ($req->param('u') ?
+                                  HTMLGen::entities($req->param('u')) :
+                                  '')).$h->br.
             "or if you don't have an url type some text".
           $h->br.
           $h->label(for => 'text', 'text').
@@ -339,6 +346,14 @@ sub submit {
         )
       ).
       $h->div(id => 'errormsg', '').
+      $h->p(
+        'Submitting news is simpler using the '.
+        $h->a(href => 'javascript:window.location=%22'.$cfg->{SiteUrl}.
+                      '/submit?u=%22+encodeURIComponent(document.location)+%22'.
+                      '&t=%22+encodeURIComponent(document.title)',
+              'bookmarklet').
+        ' (drag the link to your browser toolbar)'
+      ).
       $h->script('
           $(function() {
             $("input[name=do_submit]").click(submit);
