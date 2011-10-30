@@ -125,6 +125,9 @@ my $app =
           when ('/api/login') {
             $p = api_login();
           }
+          when (qr!^/api/getnews/(\w+)/(\d+)/(\d+)$!) {
+            $p = api_getnews($1, $2, $3);
+          }
           when (qr!^/(?:css|js|images)/.*\.([a-z]+)$!) {
             my $ct = $ct{$1};
             if (/\.\./ or !defined $ct) {
@@ -171,7 +174,7 @@ my $app =
 
 sub top {
   $h->set_title('Top News - '.$cfg->{SiteName});
-  my $news = get_top_news();
+  my ($news, $numitems) = get_top_news();
   $h->page($h->h2('Top News').news_list_to_html($news));
 }
 
@@ -801,6 +804,25 @@ sub api_votecomment {
   }
 }
 
+sub api_getnews {
+  my ($sort, $start, $count) = @_;
+  unless (exists {latest => 1, top => 1}->{$sort}) {
+    return $j->encode({status => 'err', error => "Invalid sort parameter"});
+  }
+  return $j->encode({status => 'err', error => 'Count is too big'})
+    if ($count > $cfg->{APIMaxNewsCount});
+
+  $start = 0 if ($start < 0);
+  my $getfunc = $sort eq 'latest' ? \&get_latest_news : \&get_top_news;
+  my ($news, $numitems) = $getfunc->($start, $count);
+  foreach my $n (@$news) {
+    foreach my $field (qw/rank score user_id/) {
+      delete $n->{$field};
+    }
+  }
+  return $j->encode({ status => 'ok', news => $news, count => $numitems });
+}
+
 # Check that the list of parameters specified exist.
 # If at least one is missing false is returned, otherwise true is returned.
 #
@@ -828,6 +850,10 @@ sub check_api_secret {
   $req->param('apisecret') and
     ($req->param('apisecret') eq $user->{'apisecret'})
 }
+
+###############################################################################
+# Navigation, header and footer.
+###############################################################################
 
 # Return the HTML for the 'replies' link in the main navigation bar.
 # The link is not shown at all if the user is not logged in, while
@@ -1483,10 +1509,14 @@ sub update_news_rank_if_needed {
 # site.
 
 sub get_top_news {
-  my $news_ids = $r->zrevrange('news.top', 0, $cfg->{TopNewsPerPage}-1);
+  my ($start, $count) = @_;
+  $start //= 0;
+  $count //= $cfg->{TopNewsPerPage};
+  my $numitems = $r->zcard('news.top');
+  my $news_ids = $r->zrevrange('news.top', $start, $start+($count-1));
   my $result = get_news_by_id($news_ids, update_rank => 1);
   # Sort by rank before returning, since we adjusted ranks during iteration.
-  [sort { $b->{rank} <=> $a->{rank} } @$result];
+  return ([sort { $b->{rank} <=> $a->{rank} } @$result], $numitems);
 }
 
 # Get news in chronological order.

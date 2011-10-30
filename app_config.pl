@@ -53,4 +53,7 @@ my $cfg =
    # Footer links
    FooterTwitterLink => undef,
    FooterGoogleGroupLink => undef,
+
+   # API
+   APIMaxNewsCount => 32,
 };
