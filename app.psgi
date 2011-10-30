@@ -337,7 +337,6 @@ sub submit {
                         value => ($req->param('t') ?
                                   HTMLGen::entities($req->param('t')) :
                                   '')).$h->br.
-          $h->inputtext(id => 'title', name => 'title', size => 80).$h->br.
           $h->label(for => 'url', 'url').$h->br.
           $h->inputtext(id => 'url', name => 'url', size => 60,
                         value => ($req->param('u') ?
