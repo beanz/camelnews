@@ -1538,8 +1538,9 @@ sub insert_comment {
   my $news = get_news_by_id($news_id);
   return unless ($news);
   if ($comment_id == -1) {
+    my $p;
     if ($parent_id != -1) {
-      my $p = $comments->fetch($news_id, $parent_id);
+      $p = $comments->fetch($news_id, $parent_id);
       return unless ($p);
     }
     my $comment =
@@ -1555,13 +1556,15 @@ sub insert_comment {
     return unless ($comment_id);
     $r->hincrby('news:'.$news_id, 'comments', 1);
     $r->zadd('user.comments:'.$user_id, time, $news_id.'-'.$comment_id);
+    # increment_user_karma_by(user_id,KarmaIncrementComment)
+    if ($p and $r->exists('user:'.$p->{'user_id'})) {
+      $r->hincrby('user:'.$p->{'user_id'}, 'replies',1);
+    }
     return {
             'news_id' => $news_id,
             'comment_id' => $comment_id,
             'op' => 'insert',
            }
-    # TODO: should this be before return?
-    #increment_user_karma_by($user_id, $cfg->{KarmaIncrementComment});
   }
 
   # If we reached this point the next step is either to update or
