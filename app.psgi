@@ -1033,6 +1033,43 @@ sub allowed_to_post_in_seconds {
   $r->ttl('user:'.$user->{'id'}.':submitted_recently');
 }
 
+# Add the specified set of flags to the user.
+# Returns false on error (non existing user), otherwise true is returned.
+#
+# Current flags:
+# 'a'   Administrator.
+# 'k'   Karma source, can transfer more karma than owned.
+# 'n'   Open links to new windows.
+#
+sub user_add_flags {
+  my ($user_id, $flags) = @_;
+  my ($u) = get_user_by_id($user_id);
+  return unless ($u);
+  my $newflags = $u->{'flags'};
+  foreach my $flag (split //, $flags) {
+    $newflags .= $flag unless (user_has_flags($user,$flag));
+  }
+  # Note: race condition here if somebody touched the same field
+  # at the same time: very unlkely and not critical so not using WATCH.
+  $r->hset('user:'.$u->{'id'}, 'flags', $newflags);
+  1;
+}
+
+# Check if the user has all the specified flags at the same time.
+# Returns true or false.
+sub user_has_flags {
+  my ($u, $flags) = @_;
+  foreach my $flag (split //, $flags) {
+    return if (index($u->{'flags'}, $flag) < 0);
+  }
+  1;
+}
+
+sub user_is_admin {
+  my ($u) = @_;
+  user_has_flags($u, 'a');
+}
+
 ################################################################################
 # News
 ################################################################################
@@ -1378,9 +1415,10 @@ sub news_to_html {
                   HTMLGen::entities($news{'username'}))
           ).' '.str_elapsed($news{'ctime'}).' '.
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
-    )
-    #.'score: '.$news->{'score'}.' old rank:'.$news->{'rank'}
-    #.' new rank:'.compute_news_rank($news)
+    ).
+    ($req->param('debug') && $user && user_is_admin($user) ?
+     'score: '.$news->{'score'}.' old rank:'.$news->{'rank'}.
+     ' new rank:'.compute_news_rank($news) : '')
   )."\n"
 }
 
