@@ -405,7 +405,7 @@ sub comment {
 
 sub render_comment_subthread {
   my ($comment, $sep) = @_;
-  $sep = '' unless (defined $sep);
+  $sep //= '';
   $h->div(class => 'singlecomment',
     comment_to_html($comment,
                     get_user_by_id($comment->{'user_id'})||$cfg->{DeletedUser})
@@ -1492,8 +1492,8 @@ sub get_top_news {
 # Get news in chronological order.
 sub get_latest_news {
  my ($start, $count) = @_;
- $start = 0 unless (defined $start);
- $count = $cfg->{LatestNewsPerPage} unless (defined $count);
+ $start //= 0;
+ $count //= $cfg->{LatestNewsPerPage};
  my $numitems = $r->zcard('news.cron');
  my $news_ids = $r->zrevrange('news.cron', $start, $start+($count-1));
  return (get_news_by_id($news_ids, update_rank => 1), $numitems);
@@ -1671,7 +1671,7 @@ sub comment_to_html {
 
 sub render_comments_for_news {
   my ($news_id, $root) = @_;
-  $root = -1 unless (defined $root);
+  $root //= -1;
   my $html = '';
   my %user = ();
   $comments->render_comments($news_id, $root,
