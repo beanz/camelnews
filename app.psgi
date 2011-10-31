@@ -1729,8 +1729,9 @@ sub comment_to_html {
                        ($user && ($user->{'id'} == $c->{'user_id'})) &&
                        ($c->{'ctime'} > (time - $cfg->{CommentEditTime}));
 
+  my $comment_id = $news_id.'-'.$c->{'id'};
   $h->article(class => 'comment', style => $indent,
-              'data-comment-id' => $news_id.'-'.$c->{'id'},
+              'data-comment-id' => $comment_id, id => $comment_id,
     avatar($u->{'email'}).
     $h->span(class => 'info',
       $h->span(class => 'username',
