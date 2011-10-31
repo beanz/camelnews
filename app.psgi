@@ -954,6 +954,9 @@ sub footer {
   my ($h) = @_;
   my $apisecret =
     $user ? $h->script('var apisecret = "'.$user->{'apisecret'}.'"') : '';
+  my $keyboardnavigation =
+    ($cfg->{KeyboardNavigation} ? $h->script('setKeyboardNavigation();') : '');
+
   $h->footer(
     join ' | ', grep { defined $_ } map {
       $_->[1] ? $h->a(href => $_->[1], HTMLGen::entities($_->[0])) : undef
@@ -962,7 +965,7 @@ sub footer {
        ['twitter', $cfg->{FooterTwitterLink}],
        ['google group', $cfg->{FooterGoogleGroupLink}]
       )
-  ).$apisecret;
+  ).$apisecret.$keyboardnavigation;
 }
 
 ################################################################################

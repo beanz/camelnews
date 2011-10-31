@@ -35,6 +35,9 @@ my $cfg =
    NewsUpvoteKarmaTransfered => 1,
    KarmaIncrementComment => 1,
 
+   # UI Elements
+   KeyboardNavigation => 1,
+
    # User
    DeletedUser => {username => 'deleted_user', email => '', id => -1},
    PreventCreateUserTime => 3600*15,
