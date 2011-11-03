@@ -1800,8 +1800,8 @@ sub vote_comment {
   my $comment = $comments->fetch($news_id, $comment_id);
   return unless ($comment);
   my $varray = $comment->{$vote_type} || [];
-  return if (grep { $_ eq $user_id } @$varray);
-  push @$varray, $user_id;
+  return if (grep { $_ == $user_id } @$varray);
+  push @$varray, 0+$user_id;
   return $comments->edit($news_id, $comment_id, { $vote_type => $varray });
 }
 
