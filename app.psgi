@@ -937,7 +937,8 @@ sub header {
     $h->nav(id => 'account',
             ( $user ?
               $h->a(href => '/user/'.HTMLGen::urlencode($user->{'username'}),
-                   $user->{'username'}.' ('.$user->{'karma'}.')').
+                    HTMLGen::entities($user->{'username'}).
+                    ' ('.$user->{'karma'}.')').
               ' | '.
               $h->a(href => '/logout?apisecret='.$user->{'apisecret'},
                    'logout')
