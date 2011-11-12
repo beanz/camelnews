@@ -248,8 +248,7 @@ sub usercomments {
   my $u = get_user_by_username($username);
   return err('Non existing user', 404) unless ($u);
 
-  $h->set_title(HTMLGen::entities($u->{'username'}).' comments - '.
-                $cfg->{SiteName});
+  $h->set_title($h->entities($u->{'username'}).' comments - '.$cfg->{SiteName});
   my %paginate =
     (
      get => sub {
@@ -263,11 +262,11 @@ sub usercomments {
      },
      start => $start,
      perpage => $cfg->{UserCommentsPerPage},
-     link => '/usercomments/'.HTMLGen::urlencode($u->{'username'}).'/$',
+     link => '/usercomments/'.$h->urlencode($u->{'username'}).'/$',
     );
 
   $h->page(
-    $h->h2(HTMLGen::entities($u->{'username'}),' comments').
+    $h->h2($h->entities($u->{'username'}),' comments').
     $h->div(id => 'comments', list_items(\%paginate))
   );
 }
@@ -341,12 +340,12 @@ sub submit {
           $h->label(for => 'title', 'title').
           $h->inputtext(id => 'title', name => 'title', size => 80,
                         value => ($req->param('t') ?
-                                  HTMLGen::entities($req->param('t')) :
+                                  $h->entities($req->param('t')) :
                                   '')).$h->br.
           $h->label(for => 'url', 'url').$h->br.
           $h->inputtext(id => 'url', name => 'url', size => 60,
                         value => ($req->param('u') ?
-                                  HTMLGen::entities($req->param('u')) :
+                                  $h->entities($req->param('u')) :
                                   '')).$h->br.
             "or if you don't have an url type some text".
           $h->br.
@@ -398,7 +397,7 @@ sub news {
     my $user = get_user_by_id($news->{'user_id'}) || $cfg->{DeletedUser};
     $top_comment = $h->topcomment(comment_to_html($c, $user));
   }
-  $h->set_title(HTMLGen::entities($news->{'title'}).' - '.$cfg->{SiteName});
+  $h->set_title($h->entities($news->{'title'}).' - '.$cfg->{SiteName});
   $h->page(
     $h->section(id => 'newslist', news_to_html($news)).
     $top_comment.
@@ -493,7 +492,7 @@ sub editcomment {
             $h->inputhidden(name => 'comment_id',value => $comment_id).
             $h->inputhidden(name => 'parent_id', value => -1).
             $h->textarea(name => 'comment', cols => 60, rows => 10,
-                         HTMLGen::entities($comment->{'body'})).
+                         $h->entities($comment->{'body'})).
             $h->br.
             $h->button(name => 'post_comment', value => 'Edit')
     ).$h->div(id => 'errormsg', '').
@@ -531,15 +530,15 @@ sub editnews {
         $h->inputhidden(name => 'news_id', value => $news->{'id'}).
         $h->label(for => 'title', 'title').
         $h->inputtext(id => 'title', name => 'title', size => 80,
-                      value => HTMLGen::entities($news->{'title'})).$h->br.
+                      value => $h->entities($news->{'title'})).$h->br.
         $h->label(for => 'url', 'url').$h->br.
         $h->inputtext(id => 'url', name => 'url', size => 60,
-                      value => HTMLGen::entities($news->{'url'})).$h->br.
+                      value => $h->entities($news->{'url'})).$h->br.
         "or if you don't have an url type some text".
         $h->br.
         $h->label(for => 'text', 'text').
         $h->textarea(id => 'text', name => 'text', cols => 60, rows => 10,
-                     HTMLGen::entities($text)).
+                     $h->entities($text)).
         $h->br.
         $h->checkbox(name => 'del', value => '1').'delete this news'.$h->br.
         $h->button(name => 'edit_news', value => 'Edit')
@@ -562,13 +561,13 @@ sub user {
   my $posted_news = $r->zcard('user.posted:'.$u->{'id'});
   my $posted_comments = $r->zcard('user.comments:'.$u->{'id'});
 
-  $h->set_title(HTMLGen::entities($u->{'username'}).' - '.$cfg->{SiteName});
+  $h->set_title($h->entities($u->{'username'}).' - '.$cfg->{SiteName});
   my $owner = $user && ($user->{'id'} == $u->{'id'});
   $h->page(
     $h->div(class => 'userinfo',
       avatar($u->{'email'}).' '.
-      $h->h2(HTMLGen::entities($u->{'username'})).
-      $h->pre(HTMLGen::entities($u->{'about'})).
+      $h->h2($h->entities($u->{'username'})).
+      $h->pre($h->entities($u->{'about'})).
       $h->ul(
         $h->li($h->b('created ').
                int((time-$u->{'ctime'})/(3600*24)).' days ago').
@@ -578,7 +577,7 @@ sub user {
         ($owner ? $h->li($h->a(href => '/saved/0','saved news')) : '').
         $h->li(
           $h->a(
-            href=>'/usercomments/'.HTMLGen::urlencode($u->{'username'}).'/0',
+            href=>'/usercomments/'.$h->urlencode($u->{'username'}).'/0',
             'user comments'))
       )
     ).($owner ?
@@ -587,13 +586,13 @@ sub user {
          $h->label(for => 'email', 'email (not visible, used for gravatar)').
          $h->br.
          $h->inputtext(id => 'email', name => 'email', size => 40,
-                       value => HTMLGen::entities($u->{'email'})).$h->br.
+                       value => $h->entities($u->{'email'})).$h->br.
          $h->label(for => 'password', 'change password (optional)').$h->br.
                 $h->inputpass(name => 'password', size => 40).$h->br.
                 $h->label(for => 'about', 'about').$h->br.
                 $h->textarea(id => 'about', name => 'about',
                              cols => 60, rows => 10,
-                             HTMLGen::entities($u->{'about'})
+                             $h->entities($u->{'about'})
                 ).$h->br.
                 $h->button(name => 'update_profile', value => 'Update profile')
             ).
@@ -937,13 +936,13 @@ sub header {
     );
   my $navbar =
     $h->nav(join("\n",
-                 map { $h->a(href => $_->[1], HTMLGen::entities($_->[0]))
+                 map { $h->a(href => $_->[1], $h->entities($_->[0]))
                      } @navitems).replies_link());
   my $rnavbar =
     $h->nav(id => 'account',
             ( $user ?
-              $h->a(href => '/user/'.HTMLGen::urlencode($user->{'username'}),
-                    HTMLGen::entities($user->{'username'}).
+              $h->a(href => '/user/'.$h->urlencode($user->{'username'}),
+                    $h->entities($user->{'username'}).
                     ' ('.$user->{'karma'}.')').
               ' | '.
               $h->a(href => '/logout?apisecret='.$user->{'apisecret'},
@@ -952,7 +951,7 @@ sub header {
               $h->a(href => '/login', 'login / register')
             ));
 
-  $h->header($h->h1($h->a(href => '/', HTMLGen::entities($cfg->{SiteName})).
+  $h->header($h->h1($h->a(href => '/', $h->entities($cfg->{SiteName})).
                     ' '.$h->small($VERSION)
                    ).$navbar.' '.$rnavbar);
 }
@@ -966,7 +965,7 @@ sub footer {
 
   $h->footer(
     join ' | ', grep { defined $_ } map {
-      $_->[1] ? $h->a(href => $_->[1], HTMLGen::entities($_->[0])) : undef
+      $_->[1] ? $h->a(href => $_->[1], $h->entities($_->[0])) : undef
     } (['source code', 'http://github.com/antirez/lamernews'],
        ['rss feed', '/rss'],
        ['twitter', $cfg->{FooterTwitterLink}],
@@ -1477,13 +1476,13 @@ sub news_to_rss {
   $news{'url'} = $news{'ln_url'} unless ($domain);
 
   $h->item(
-    $h->title(HTMLGen::entities($news{'title'})).' '.
-    $h->guid(HTMLGen::entities($news{'url'})).' '.
-    $h->link(HTMLGen::entities($news{'url'})).' '.
+    $h->title($h->entities($news{'title'})).' '.
+    $h->guid($h->entities($news{'url'})).' '.
+    $h->link($h->entities($news{'url'})).' '.
     $h->description(
       '<![CDATA['.$h->a(href => $news{'ln_url'}, 'Comments').']]>'
     ).' '.
-    $h->comments(HTMLGen::entities($news{'ln_url'}))
+    $h->comments($h->entities($news{'ln_url'}))
   )."\n"
 }
 
@@ -1509,16 +1508,16 @@ sub news_to_html {
 
   $h->article('data-news-id' => $news{'id'},
     $h->a(href => '#up', class => $upclass, '&#9650;').' '.
-    $h->h2($h->a(href => $news{'url'}, HTMLGen::entities($news{'title'}))).' '.
-    $h->address(($domain ? 'at '.HTMLGen::entities($domain) : '').
+    $h->h2($h->a(href => $news{'url'}, $h->entities($news{'title'}))).' '.
+    $h->address(($domain ? 'at '.$h->entities($domain) : '').
                 (($user and $user->{'id'} == $news{'user_id'} and
                   $news{'ctime'} > (time - $cfg->{NewsEditTime})) ?
                  ' '.$h->a(href => '/editnews/'.$news{'id'}, '[edit]') : '')).
     $h->a(href => '#down', 'class' => $downclass, '&#9660;').
     $h->p($news{'up'}.' up and '.$news{'down'}.' down, posted by '.
           $h->username(
-            $h->a(href=>'/user/'.HTMLGen::urlencode($news{'username'}),
-                  HTMLGen::entities($news{'username'}))
+            $h->a(href=>'/user/'.$h->urlencode($news{'username'}),
+                  $h->entities($news{'username'}))
           ).' '.str_elapsed($news{'ctime'}).' '.
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
     ).
@@ -1745,8 +1744,8 @@ sub comment_to_html {
     avatar($u->{'email'}).
     $h->span(class => 'info',
       $h->span(class => 'username',
-        $h->a(href=>'/user/'.HTMLGen::urlencode($u->{'username'}),
-              HTMLGen::entities($u->{'username'}))
+        $h->a(href=>'/user/'.$h->urlencode($u->{'username'}),
+              $h->entities($u->{'username'}))
         ).' '.str_elapsed($c->{'ctime'}).'. '.
         (!$c->{'topcomment'} ?
          $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
@@ -1781,7 +1780,7 @@ sub comment_to_html {
          '')
     ).
     $h->pre(
-      urls_to_links(HTMLGen::entities($c->{'body'})) # TODO: .strip
+      urls_to_links($h->entities($c->{'body'})) # TODO: .strip
     )
   );
 }
