@@ -2,6 +2,12 @@
 use warnings;
 use strict;
 use feature ":5.10";
+my $root;
+BEGIN {
+  ($root = __FILE__) =~ s!/[^/]+$!!;
+  $root .= '/..';
+}
+use lib $root.'/lib';
 use Comments;
 use Crypt::PBKDF2;
 use Digest::MD5 qw/md5_hex/;
@@ -18,7 +24,7 @@ unless (caller) {
   Plack::Runner->run(@ARGV, $0);
 }
 
-my $cfg = do 'app_config.pl' or die "Config file error: $@\n";
+my $cfg = do $root.'/etc/app_config.pl' or die "Config file error: $@\n";
 our $VERSION = '0.9.2';
 
 our %ct =
@@ -136,7 +142,7 @@ my $app =
             if (/\.\./ or !defined $ct) {
               return err('Not found');
             } else {
-              open my $fh, 'public'.$_ or return err('Not found');
+              open my $fh, $root.'/public'.$_ or return err('Not found');
               $p = [ 200, ['Content-Type' => $ct], $fh ]
             }
           }
@@ -1883,4 +1889,4 @@ sub list_items {
   $aux
 }
 
-$app;
+return $app;

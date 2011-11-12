@@ -99,19 +99,19 @@ sub set_title {
 }
 
 sub entities {
-  HTML::Entities::encode_entities(@_)
+  HTML::Entities::encode_entities($_[-1])
 }
 
 sub unentities {
-  HTML::Entities::decode_entities(@_);
+  HTML::Entities::decode_entities($_[-1]);
 }
 
 sub urlencode {
-  URI::Escape::uri_escape(@_);
+  URI::Escape::uri_escape($_[-1]);
 }
 
 sub urldecode {
-  URI::Escape::uri_unescape(@_);
+  URI::Escape::uri_unescape($_[-1]);
 }
 
 sub page {
