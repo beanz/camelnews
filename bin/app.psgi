@@ -1206,7 +1206,7 @@ sub get_news_by_id {
     push @news, $res if ($res);
   }
 
-  return $opt{single} ? undef : [] unless (@news);
+  return $opt{single} ? undef : [] unless (@news && @{$news[0]});
 
   # Get all the news
   my @result;
