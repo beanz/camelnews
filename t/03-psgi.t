@@ -761,7 +761,6 @@ Edit comment - Lamer News
   is($res->code, 200, '... status code');
   is($res->content, '{"status":"ok","news_id":-1}', '... content');
 
-if (0) {
   $res = $cb->(POST 'http://localhost/api/postcomment', %headers,
                Content => [
                            apisecret => $apisecret,
@@ -773,9 +772,44 @@ if (0) {
   ok($res->is_success, '/api/postcomment');
   is($res->code, 200, '... status code');
   is($res->content,
-     '{"comment_id":"1","status":"ok","news_id":"2","parent_id":"-1","op":"insert"}',
+     '{"comment_id":"1","status":"ok","news_id":"2","parent_id":"-1","op":"delete"}',
      '... content');
-}
+
+  $res = $cb->(GET 'http://localhost/news/2');
+  ok($res->is_success, 'news/2 deleted');
+  is($res->code, 200, '... status code');
+  is(canon($res->content), '<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>
+Newish article - Lamer News
+</title>
+<meta name="robots" content="nofollow">
+<link rel="stylesheet" href="/css/style.css?v=8" type="text/css">
+<link rel="shortcut icon" href="/images/favicon.png">
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script><script src="/js/app.js?v=8"></script>
+</head>
+<body>
+<div class="container">
+<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<a href="/latest/0">latest</a>
+<a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
+<section id="newslist"><article class="deleted">[deleted news]</article></section><topcomment><article style="margin-left:0px" id="2-0" data-comment-id="2-0" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago.    </span><pre>Another article (edited)</pre></article></topcomment><br>
+<div id="comments">
+<article style="margin-left:0px" class="commented deleted">[comment deleted]</article><article style="margin-left:60px" id="2-2" data-comment-id="2-2" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user2">user2</a></span> some time ago. <a href="/comment/2/2" class="reply">link</a>  1 points <a href="#up" class="uparrow">&#9650;</a> <a href="#down" class="downarrow">&#9660;</a></span><pre>a reply</pre></article>
+</div>
+<script>
+       $(function() {
+         $("input[name=post_comment]").click(post_comment);
+       });
+     </script>
+</div>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>setKeyboardNavigation();</script>
+</div>
+</body>
+</html>
+', '... content');
 
 };
 
@@ -1440,6 +1474,43 @@ sub connections {
     [ recv => "*3\r\n\$4\r\nzrem\r\n\$9\r\nnews.cron\r\n\$1\r\n2\r\n", '' ],
     [ send => ":1\r\n", '' ],
 
+    # /api/postcomment (delete)
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
+    [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
+      'user:1' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
+    [ send => "\$5\r\nuser1\r\n", '' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$10\r\n1321200741\r\n", '' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$-1\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$100\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$100\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$108\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => ":0\r\n", '' ],
+    [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:2\r\n\$8\r\ncomments\r\n\$2\r\n-1\r\n", '' ],
+    [ send => ":1\r\n", '' ],
+
+    # /news/2
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
+    [ send => "*22\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n\$3\r\ndel\r\n\$1\r\n1\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
+    [ send => "\$5\r\nuser1\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
+    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n09f4675e12299c9513046612c09f87d04511ad86\r\n\$8\r\npassword\r\n\$40\r\n282ae99397c03876543728819ce259ae547ecda5\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n7a5c29d3677dd03d8aa2e03b93af82a9860b417d\r\n\$9\r\napisecret\r\n\$40\r\ne69d6052ba38ad632a40502d99521ed74d0fe1b9\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n1\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$16\r\nthread:comment:2\r\n", '' ],
+    [ send => "*6\r\n\$6\r\nnextid\r\n\$1\r\n2\r\n\$1\r\n1\r\n\$108\r\n{\"ctime\":1321222787,\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n\$1\r\n2\r\n\$88\r\n{\"ctime\":1321222788,\"body\":\"a reply\",\"up\":[\"2\"],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
+    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n09f4675e12299c9513046612c09f87d04511ad86\r\n\$8\r\npassword\r\n\$40\r\n282ae99397c03876543728819ce259ae547ecda5\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n7a5c29d3677dd03d8aa2e03b93af82a9860b417d\r\n\$9\r\napisecret\r\n\$40\r\ne69d6052ba38ad632a40502d99521ed74d0fe1b9\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n1\r\n", '' ],
+      [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", '' ],
+  [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n3d4b6fb7611b2b82c4f9161c6a423a9af6540c65\r\n\$8\r\npassword\r\n\$40\r\nafea2e1264dd5a023fbeec8beaee81e99f184fd8\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n0\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n8efcd1255910e284f3963487ddab8f2804d8aff1\r\n\$9\r\napisecret\r\n\$40\r\n7cf39f6cd309e18a97d8ff294851cc759ad81745\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
    ]
   ]
 }
