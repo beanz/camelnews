@@ -1676,7 +1676,7 @@ sub insert_comment {
   return unless ($c->{'ctime'} > (time - $cfg->{CommentEditTime}));
 
   if (length($body) == 0) {
-    return unless (!$comments->del_comment($news_id, $comment_id));
+    $comments->del_comment($news_id, $comment_id) or return;
     $r->hincrby('news:'.$news_id, 'comments', -1);
     return {
             'news_id' => $news_id,
