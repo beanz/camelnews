@@ -657,6 +657,7 @@ sub api_create_account {
   }
   my ($auth,$errmsg) = create_user($req->param('username'),$password);
   if ($auth) {
+    # TOFIX create doesn't have secret like login does?
     return $j->encode({status => 'ok', auth => $auth});
   } else {
     return $j->encode({ status => 'err', error => $errmsg });
