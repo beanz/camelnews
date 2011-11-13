@@ -1456,6 +1456,7 @@ sub del_news {
 # If the url is in the form text:// nil is returned.
 sub news_domain {
   my $news = shift;
+  return if ($news->{'url'} eq ''); # edit_news with text article case
   my @su = split /\//, $news->{'url'};
   ($su[0] eq 'text:') ? undef : $su[2]
 }
