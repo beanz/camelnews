@@ -1752,7 +1752,7 @@ sub comment_to_html {
         (!$c->{'topcomment'} ?
          $h->a(href => '/comment/'.$news_id.'/'.$c->{'id'}, class => 'reply',
                'link') : '').' '.
-        ($user and !$c->{'topcomment'} ?
+        ($user && !$c->{'topcomment'} ?
          $h->a(href => '/reply/'.$news_id.'/'.$c->{'id'},
                class => 'reply', 'reply').' ' :
          ' ').
@@ -1760,11 +1760,11 @@ sub comment_to_html {
          do {
            my $upclass = 'uparrow';
            my $downclass = 'downarrow';
-           if ($user and $c->{'up'} and
+           if ($user && $c->{'up'} &&
                (grep { $_ eq $user->{'id'} } @{$c->{'up'}})) {
              $upclass .= ' voted';
              $downclass .= ' disabled';
-           } elsif ($user and $c->{'down'} and
+           } elsif ($user && $c->{'down'} &&
                     (grep { $_ eq $user->{'id'} } @{$c->{'down'}})) {
              $downclass .= ' voted';
              $upclass .= ' disabled';
