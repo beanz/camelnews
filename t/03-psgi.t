@@ -17,18 +17,24 @@ use Test::SharedFork;
 
 my $j = JSON->new;
 my $time = time - 90;
-my $connections = connections();
-my $server;
-eval { $server = AnyEvent::MockTCPServer->new(connections => $connections); };
-plan skip_all => "Failed to create dummy server: $@" if ($@);
-my ($host, $port) = $server->connect_address;
-my $pid = fork;
-unless ($pid) {
-  if ($pid == 0) {
-    $server->finished_cv->recv;
-    exit;
-  } else {
-    die $!;
+my $ktime = time + 3600;
+my $host;
+my $port;
+my $pid;
+unless (USE_REAL_SERVER) {
+  my $connections = connections();
+  my $server;
+  eval { $server = AnyEvent::MockTCPServer->new(connections => $connections); };
+  plan skip_all => "Failed to create dummy server: $@" if ($@);
+  ($host, $port) = $server->connect_address;
+  $pid = fork;
+  unless ($pid) {
+    if ($pid == 0) {
+      $server->finished_cv->recv;
+      exit;
+    } else {
+      die $!;
+    }
   }
 }
 
@@ -40,12 +46,16 @@ END {
 open my $fh, '>', $cf or
   die "Failed to write temporary configuration file: $!\n";
 my $c = slurp('etc/app_config.pl');
-$c =~ s/RedisPort => \K\d+/$port/;
-$c =~ s/RedisHost => \K'[^']+'/'$host'/;
+unless (USE_REAL_SERVER) {
+  $c =~ s/RedisPort => \K\d+/$port/;
+  $c =~ s/RedisHost => \K'[^']+'/'$host'/;
+}
+$c =~ s/NewsSubmissionBreak => [^,]+,//;
+$c =~ s/PreventCreateUserTime => [^,]+,//;
 print $fh $c;
 close $fh;
 
-$ENV{CAMEL_NEWS_CONFIG} = $cf unless (USE_REAL_SERVER);
+$ENV{CAMEL_NEWS_CONFIG} = $cf;
 my $app = do 'bin/app.psgi';
 die $@ if $@;
 test_psgi $app, sub {
@@ -55,10 +65,45 @@ test_psgi $app, sub {
   is($res->code, 404, '... status code');
   is($res->content, 'Not found', '... content');
 
+  $res = $cb->(POST 'http://localhost/api/create_account',
+               Content => [
+                           username => 'user1',
+                           password => 'password1',
+                          ]);
+  ok($res->is_success, 'create_account correct password');
+  is($res->code, 200, '... status code');
+  $c = $res->content;
+  like($c, qr!{"auth":"[0-9a-f]{40}","status":"ok"}!, '... content');
+  my $json = $j->decode($c);
+  my %headers = ( Cookie => 'auth='.$json->{auth} );
+
+  $res =
+    $cb->(GET 'http://localhost/api/login?username=user1&password=password1');
+  ok($res->is_success, 'login correct password');
+  is($res->code, 200, '... status code');
+  $c = $res->content;
+  like($c,
+       qr!^{"auth":"[0-9a-f]{40}","apisecret":"[0-9a-f]{40}","status":"ok"}$!,
+     '... content');
+  $json = $j->decode($c);
+  my $apisecret = $json->{apisecret};
+
+  $res = $cb->(POST 'http://localhost/api/submit', %headers,
+               Content => [
+                           apisecret => $apisecret,
+                           title => 'Test Article',
+                           text => 'some text',
+                           url => '',
+                           news_id => '-1',
+                          ]);
+  ok($res->is_success, '/api/submit');
+  is($res->code, 200, '... status code');
+  is($res->content, '{"status":"ok","news_id":"1"}', '... content');
+
   $res = $cb->(GET 'http://localhost/');
   ok($res->is_success, 'root - success');
   is($res->code, 200, '... status code');
-  my $c = canon($res->content);
+  $c = canon($res->content);
   is($c, '<!DOCTYPE html>
 <html>
 <head>
@@ -352,21 +397,6 @@ password
      '{"status":"err","error":"No match for the specified username / password pair."}',
      '... content');
 
-  $res =
-    $cb->(GET 'http://localhost/api/login?username=user1&password=password1');
-  ok($res->is_success, 'login correct password');
-  is($res->code, 200, '... status code');
-  $c = $res->content;
-  is($c,
-     '{"auth":"5abaad9749326aaf9f984a2ab2f6f315e8f6223a","apisecret":"a3f9381b0f3f0201ad762f913623070d0e2335db","status":"ok"}',
-     '... content');
-  my $json = $j->decode($c);
-  is($json->{auth}, '5abaad9749326aaf9f984a2ab2f6f315e8f6223a', '... auth');
-  is($json->{apisecret}, 'a3f9381b0f3f0201ad762f913623070d0e2335db',
-     '... apisecret');
-  my %headers = ( Cookie => 'auth='.$json->{auth} );
-  my $apisecret = $json->{apisecret};
-
   $res = $cb->(GET 'http://localhost/saved/0', %headers);
   ok($res->is_success, 'saved');
   is($res->code, 200, '... status code');
@@ -387,11 +417,11 @@ Saved news - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=a3f9381b0f3f0201ad762f913623070d0e2335db">logout</a></nav></header><div id="content">
-<h2>Your saved news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
+<h2>Your saved news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address> <a href="/editnews/1">[edit]</a></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
 </section>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "a3f9381b0f3f0201ad762f913623070d0e2335db"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -417,11 +447,11 @@ Your threads - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=a3f9381b0f3f0201ad762f913623070d0e2335db">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
 <h2>Your threads</h2><div id="comments">
 </div>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "a3f9381b0f3f0201ad762f913623070d0e2335db"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -447,7 +477,7 @@ Submit a new story - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=a3f9381b0f3f0201ad762f913623070d0e2335db">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Submit a new story</h2><div id="submitform">
 <form name="f"><input value="-1" name="news_id" type="hidden"><label for="title">
 title
@@ -472,7 +502,7 @@ text
           });
       </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "a3f9381b0f3f0201ad762f913623070d0e2335db"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret.q~"</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -524,12 +554,12 @@ user1 comments - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=a3f9381b0f3f0201ad762f913623070d0e2335db">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
 <h2 user1=" comments"><div id="comments">
 <article style="margin-left:0px" id="2-1" data-comment-id="2-1" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago. <a href="/comment/2/1" class="reply">link</a> <a href="/reply/2/1" class="reply">reply</a> 1 points <a href="#up" class="uparrow voted">&#9650;</a> <a href="#down" class="downarrow disabled">&#9660;</a><a href="/editcomment/2/1" class="reply">edit</a> (some minutes left)</span><pre>comment</pre></article>
 </div>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "a3f9381b0f3f0201ad762f913623070d0e2335db"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -555,7 +585,7 @@ Edit news - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=a3f9381b0f3f0201ad762f913623070d0e2335db">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <article data-news-id="2"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/2">New article</a></h2> <address> <a href="/editnews/2">[edit]</a></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/2">1 comments</a></p></article>
 <div id="submitform">
 <form name="f"><input value="2" name="news_id" type="hidden"><label for="title">
@@ -583,7 +613,7 @@ text
             });
         </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "a3f9381b0f3f0201ad762f913623070d0e2335db"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret.q~"</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -722,10 +752,35 @@ Edit comment - Lamer News
 </html>
 ~, '... content');
 
+  $res = $cb->(POST 'http://localhost/api/delnews', %headers,
+               Content => [
+                           apisecret => $apisecret,
+                           news_id => '2',
+                          ]);
+  ok($res->is_success, '/api/delnews');
+  is($res->code, 200, '... status code');
+  is($res->content, '{"status":"ok","news_id":-1}', '... content');
+
+if (0) {
+  $res = $cb->(POST 'http://localhost/api/postcomment', %headers,
+               Content => [
+                           apisecret => $apisecret,
+                           news_id => '2',
+                           comment_id => '1',
+                           parent_id => '-1',
+                           comment => '',
+                          ]);
+  ok($res->is_success, '/api/postcomment');
+  is($res->code, 200, '... status code');
+  is($res->content,
+     '{"comment_id":"1","status":"ok","news_id":"2","parent_id":"-1","op":"insert"}',
+     '... content');
+}
+
 };
 
 done_testing;
-waitpid $pid, 0;
+waitpid $pid, 0 if ($pid);
 
 sub slurp {
   my $file = shift;
@@ -748,6 +803,122 @@ sub canon {
 sub connections {
   [
    [
+    # create_account user1
+    [ recv => "*2\r\n\$6\r\nexists\r\n\$20\r\nusername.to.id:user1\r\n",
+      'exists user1' ],
+    [ send => ":0\r\n", 'no' ],
+    [ recv => "*2\r\n\$4\r\nincr\r\n\$11\r\nusers.count\r\n",
+      'incr users.count' ],
+    [ send => ":1\r\n", '1' ],
+    [ recv => "*26\r\n\$5\r\nhmset\r\n\$6\r\nuser:1\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n", 'hmset user:1 i' ],
+    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 ii' ],
+    [ recv => "\$8\r\npassword\r\n\$40\r\n", 'hmset user:1 iii' ],
+    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 iv' ],
+    [ recv => "\$5\r\nctime\r\n\$10\r\n", 'hmset user:1 v' ],
+    [ recvline => qr!^\d+$!, 'hmset user:1 vi' ],
+    [ recv => "\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n",
+      'hmset user:1 vii' ],
+    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 viii' ],
+    [ recv => "\$9\r\napisecret\r\n\$40\r\n", 'hmset user:1 ix' ],
+    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 x' ],
+    [ recv => "\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n", 'hmset user:1 xi' ],
+    [ recvline => qr!^\d+$!, 'hmset user:1 xii' ],
+    [ send => "+OK\r\n", 'ok' ],
+    [ recv => "*3\r\n\$3\r\nset\r\n\$20\r\nusername.to.id:user1\r\n\$1\r\n1\r\n",
+      'set username.to.id:user1 1' ],
+    [ send => "+OK\r\n", 'ok' ],
+    [ recv => "*3\r\n\$3\r\nset\r\n\$45\r\n", 'set auth:... 1 i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'set auth:... 1 ii' ],
+    [ recv => "\$1\r\n1\r\n", 'set auth:... 1 iii' ],
+    [ send => "+OK\r\n", 'ok' ],
+
+    # login user1
+    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n", '' ],
+    [ send => "\$1\r\n1\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n6b72a45358fb859b391d2d1ce2226fa61a74ed9e\r\n\$8\r\npassword\r\n\$40\r\ne78514e6c6101112846d2b9f60dc5cdf918c108d\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n9b37ef4d421b50957c45afcf588b877896e176d4\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
+
+    # submit news:1
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
+    [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
+      'user:1' ],
+    [ recv => "*2\r\n\$3\r\nttl\r\n\$25\r\nuser:1:submitted_recently\r\n",
+      'user:1:submitted_recently' ],
+    [ send => ":-1\r\n", 'not recently' ],
+    [ recv => "*2\r\n\$4\r\nincr\r\n\$10\r\nnews.count\r\n", 'incr news.count' ],
+    [ send => ":1\r\n", '1' ],
+    [ recv => "*22\r\n\$5\r\nhmset\r\n\$6\r\nnews:1\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n",
+      'hmset news:1 i' ],
+    [ recvline => qr!^\d{10}$!, 'hmset news:1 ii (ctime)' ],
+    [ recv => "\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
+      'hmset news:1 iii' ],
+    [ send => "+OK\r\n", 'hmset ok' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
+      'news:1' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
+      'hget user:1 username' ],
+    [ send => "\$5\r\nuser1\r\n", 'user1' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:1\r\n\$1\r\n1\r\n",
+      'zscore news.up:1' ],
+    [ send => "\$-1\r\n", '-1' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:1\r\n\$1\r\n1\r\n",
+      'zscore news.down:1' ],
+    [ send => "\$-1\r\n", '-1' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:1\r\n\$1\r\n1\r\n",
+      'zscore news.up:1' ],
+    [ send => "\$-1\r\n", '-1' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:1\r\n\$1\r\n1\r\n",
+      'zscore news.down:1' ],
+    [ send => "\$-1\r\n", '-1' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$9\r\nnews.up:1\r\n\$10\r\n",
+      'zadd news.up:1 i'],
+    [ recvline => qr!^\d{10}$!, 'zadd news.up:1 ii (ctime)' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd news.up:1 iii' ],
+    [ send => ":1\r\n", '1' ],
+    [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:1\r\n\$2\r\nup\r\n\$1\r\n1\r\n",
+      'hincrby news:1 up 1' ],
+    [ send => ":1\r\n", '1' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$12\r\nuser.saved:1\r\n\$10\r\n",
+      'zadd user.saved:1 0' ],
+    [ recvline => qr!^\d{10}$!, 'zadd user.saved:1 ii (ctime)' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd user.saved:1 iii' ],
+    [ send => ":1\r\n", 'zadd ok' ],
+    [ recv => "*4\r\n\$6\r\nzrange\r\n\$9\r\nnews.up:1\r\n\$1\r\n0\r\n\$2\r\n-1\r\n",
+      'zrange news.up:1' ],
+    [ send => "*1\r\n\$1\r\n1\r\n", '1' ],
+    [ recv => "*4\r\n\$6\r\nzrange\r\n\$11\r\nnews.down:1\r\n\$1\r\n0\r\n\$2\r\n-1\r\n",
+      'zrange news.down:1' ],
+    [ send => "*0\r\n", '0' ],
+    [ recv => "*6\r\n\$5\r\nhmset\r\n\$6\r\nnews:1\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n", 'hmset news:1 score+rank i' ],
+    [ recvline => qr!^\$\d+$!, 'hmset news:1 score+rank ii' ],
+    [ recvline => qr!^[\.0-9]+$!, 'hmset news:1 score+rank iii' ],
+    [ send => "+OK\r\n", 'ok' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$8\r\nnews.top\r\n", 'zadd news.top i' ],
+    [ recvline => qr!^\$\d+$!, 'zadd news.top ii' ],
+    [ recvline => qr!^[\.0-9]+$!, 'zadd news.top iii' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd news.top iv' ],
+    [ send => ":1\r\n", 'zadd news.top reply' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$13\r\nuser.posted:1\r\n\$10\r\n",
+      'zadd user.posted:1' ],
+    [ recvline => qr!^\d+$!, 'zadd user.posted:1 ii' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd user.posted:1 iii' ],
+    [ send => ":1\r\n", '' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$9\r\nnews.cron\r\n\$10\r\n",
+      'zadd news.cron i' ],
+    [ recvline => qr!^\d+$!, 'zadd news.cron ii' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd news.cron iii' ],
+    [ send => ":1\r\n", '' ],
+    [ recv => "*4\r\n\$4\r\nzadd\r\n\$8\r\nnews.top\r\n", 'zadd news.top i' ],
+    [ recvline => qr!^\$\d+$!, 'zadd news.top ii' ],
+    [ recvline => qr!^[\.0-9]+$!, 'zadd news.top iii' ],
+    [ recv => "\$1\r\n1\r\n", 'zadd news.top iv' ],
+    [ send => ":0\r\n", '' ],
+
+    # /
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$8\r\nnews.top\r\n", 'zcard news.top' ],
     [ send => ":1\r\n", '1 article news' ],
     [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
@@ -761,6 +932,10 @@ sub connections {
       'hget user:1 username' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
+    # /css
+    # /js
+
+    # /rss
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$9\r\nnews.cron\r\n", 'zcard news.cron' ],
     [ send => ":1\r\n", '1 article news' ],
     [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
@@ -774,6 +949,9 @@ sub connections {
       'hget user:1 username' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
+    # /latest redirect
+
+    # /latest/0
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$9\r\nnews.cron\r\n", 'zcard news.cron' ],
     [ send => ":1\r\n", '1 article news' ],
     [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
@@ -787,28 +965,38 @@ sub connections {
       'hget user:1 username' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
+    # /replies
+    # /saved/0
+
+    # /usercomments/user2/0
     [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user2\r\n",
       'nget username.to.id:user2' ],
     [ send => "\$-1\r\n", 'no such user' ],
 
+    # /submit
+    # /logout
+
+    # /news/1
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00801850412002884\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", 'news:1' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
       'hget user:1' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321117182\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user1 (all)' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$16\r\nthread:comment:1\r\n",
       'hgetall thread:comment:1' ],
     [ send => "*0\r\n", 'no comments' ],
 
+    # /news/2
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n",
       'hgetall news:2' ],
     [ send => "*0\r\n", 'no such news' ],
 
+    # /comment/1/2
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321117244\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00488120052790944\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", 'news:1' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00488120052790944\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", 'news:1' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
       'hget user:1' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
@@ -816,45 +1004,46 @@ sub connections {
       'hget thread:comment:1' ],
     [ send => "\$-1\r\n", 'no such comment' ],
 
+    # /comment/2/2
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", 'hgetall news:2' ],
     [ send => "*0\r\n", 'no such news' ],
 
+    # /reply/1/1
+    # /editcomment/1/1
+    # /editnews/1
+
+    # /user/user1
     [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n",
       'username.to.id:user1' ],
     [ send => "\$1\r\n1\r\n", 'user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321117182\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
-
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$13\r\nuser.posted:1\r\n",
       'user.posted:1' ],
     [ send => ":1\r\n", '1' ],
-
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$15\r\nuser.comments:1\r\n", '' ],
     [ send => ":0\r\n", '0' ],
 
+    # /user/user2
     [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user2\r\n",
       'username.to.id:user2' ],
     [ send => "\$-1\r\n", 'no such user' ],
 
+    # /login?username=user1&password=incorrect
     [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n",
       'username.to.id:user1' ],
     [ send => "\$1\r\n1\r\n", 'user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n",
-      'username.to.id:user1' ],
-    [ send => "\$1\r\n1\r\n", 'user:1' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
-      'user:1' ],
-
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n", 'auth:...' ],
+    # /saved/0
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$12\r\nuser.saved:1\r\n",
       'zcard user.saved:1' ],
@@ -863,22 +1052,24 @@ sub connections {
       'zrevrange user.saved:1' ],
     [ send => "*1\r\n\$1\r\n1\r\n", 'post 1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321117244\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00488120052790944\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00488120052790944\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:1' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
       'hget user:1 username' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:1\r\n\$1\r\n1\r\n",
       'zscore news.up:1' ],
-    [ send => "\$10\r\n1321117244\r\n", 'news.up.1' ],
+    [ send => "\$10\r\n".$time."\r\n", 'news.up.1' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:1\r\n\$1\r\n1\r\n",
       'zscore news.down:1' ],
     [ send => "\$-1\r\n", 'news.down:1 does not exist' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n", 'auth:...' ],
+    # /replies
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$15\r\nuser.comments:1\r\n",
       'zcard user.comments:1' ],
@@ -889,18 +1080,20 @@ sub connections {
       'hset user:1 replies 0' ],
     [ send => ":0\r\n", '0' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /submit
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /api/submit
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$3\r\nttl\r\n\$25\r\nuser:1:submitted_recently\r\n",
       'user:1:submitted_recently' ],
@@ -914,7 +1107,7 @@ sub connections {
       'hmset news:2 iii' ],
     [ send => "+OK\r\n", 'hmset ok' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", 'hgetall news:2' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321135507\r\n\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:2' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
       'hget user:1 username' ],
@@ -974,23 +1167,22 @@ sub connections {
     [ recvline => qr!^[\.0-9]+$!, 'zadd news.top iii' ],
     [ recv => "\$1\r\n2\r\n", 'zadd news.top iv' ],
     [ send => ":0\r\n", '' ],
-    [ recv => "*4\r\n\$5\r\nsetex\r\n\$25\r\nuser:1:submitted_recently\r\n\$3\r\n900\r\n\$1\r\n1\r\n", 'setex user:1:submitted_recently' ],
-    [ send => "+OK\r\n", '' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /api/postcomment
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", 'hgetall news:2' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321139070\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
       'hget user:1 username' ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n1\r\n",
       'zscore news.up:2' ],
-    [ send => "\$10\r\n1321139070\r\n", '' ],
+    [ send => "\$10\r\n".$time."\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n",
       'zscore news.down:2' ],
     [ send => "\$-1\r\n", '' ],
@@ -1010,16 +1202,17 @@ sub connections {
     [ recv => "\$3\r\n2-1\r\n", 'zadd user.comments:1 iii' ],
     [ send => ":1\r\n", '' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /usercomments/user1/0
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n", '' ],
     [ send => "\$1\r\n1\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
-    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n1321140542\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
+    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
     [ recv => "*2\r\n\$5\r\nzcard\r\n\$15\r\nuser.comments:1\r\n", '' ],
     [ send => ":1\r\n", '' ],
     [ recv => "*4\r\n\$9\r\nzrevrange\r\n\$15\r\nuser.comments:1\r\n\$1\r\n0\r\n\$1\r\n9\r\n", '' ],
@@ -1027,46 +1220,45 @@ sub connections {
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$89\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
-    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n1321140542\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
+    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /editnews/2
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$10\r\n1321179569\r\n", '' ],
+    [ send => "\$10\r\n".$time."\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
 
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\nauth:5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n",
-      'auth:...' ],
+    # /api/submit
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n9321131593\r\n",
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$10\r\n1321180762\r\n", '' ],
+    [ send => "\$10\r\n".$time."\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*6\r\n\$5\r\nhmset\r\n\$6\r\nnews:2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n", '' ],
     [ send => "+OK\r\n", '' ],
 
+    # /api/create_account
     [ recv => "*2\r\n\$6\r\nexists\r\n\$20\r\nusername.to.id:user2\r\n", '' ],
     [ send => ":0\r\n", '' ],
-    [ recv => "*2\r\n\$6\r\nexists\r\n\$27\r\nlimit:create_user.127.0.0.1\r\n", '' ],
-    [ send => ":0\r\n", '' ],
-    [ recv => "*4\r\n\$5\r\nsetex\r\n\$27\r\nlimit:create_user.127.0.0.1\r\n\$5\r\n54000\r\n\$1\r\n1\r\n", '' ],
-    [ send => "+OK\r\n", '' ],
     [ recv => "*2\r\n\$4\r\nincr\r\n\$11\r\nusers.count\r\n", '' ],
     [ send => ":2\r\n", '' ],
     [ recv => "*26\r\n\$5\r\nhmset\r\n\$6\r\nuser:2\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n", 'hmset user:2 i' ],
@@ -1090,13 +1282,14 @@ sub connections {
     [ recv => "\$1\r\n2\r\n", 'set auth:... iii' ],
     [ send => "+OK\r\n", '' ],
 
+    # /reply/2/1
     [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
     [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n2\r\n", 'user:2' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n1321183325\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321183324\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n2\r\n", '' ],
@@ -1106,15 +1299,16 @@ sub connections {
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$89\r\n{\"ctime\":1321183324,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
-    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n1321117182\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n1321183323\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
+    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
 
+    # /api/postcomment
     [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
     [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n2\r\n", 'user:2' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n1321183325\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321184901\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n2\r\n", '' ],
@@ -1141,13 +1335,14 @@ sub connections {
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nuser:1\r\n\$7\r\nreplies\r\n\$1\r\n1\r\n", '' ],
     [ send => ":1\r\n", '' ],
 
+    # /api/votenews
     [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
     [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n2\r\n", 'user:2' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n1321183325\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321188965\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n\$19\r\n0.00515432777645662\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n2\r\n", '' ],
@@ -1188,11 +1383,12 @@ sub connections {
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nuser:1\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n", '' ],
     [ send => ":4\r\n", '' ],
 
+    # /api/votecomment
     [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
     [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n2\r\n", 'user:2' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n1321183325\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$89\r\n{\"ctime\":1321191945,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
@@ -1203,13 +1399,14 @@ sub connections {
       'hset thread:comment:2 ii' ],
     [ send => ":0\r\n", '' ],
 
+    # /editcomment/2/2
     [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
     [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
     [ send => "\$1\r\n2\r\n", 'user:2' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n1321183325\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
-    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n1321192582\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n2\r\n", '' ],
@@ -1217,9 +1414,31 @@ sub connections {
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n2\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n2\r\n", '' ],
-    [ send => "\$88\r\n{\"ctime\":1321192584,\"body\":\"a reply\",\"up\":[\"2\"],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
+    [ send => "\$88\r\n{\"ctime\":".$time.",\"body\":\"a reply\",\"up\":[\"2\"],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", '' ],
-    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\nf8bfab6057362d6d7b265f1ea48b9ec49cb748f4\r\n\$8\r\npassword\r\n\$40\r\n508aab8bcce8dc15b2af920eb31dc9b466241301\r\n\$5\r\nctime\r\n\$10\r\n1321192583\r\n\$5\r\nkarma\r\n\$1\r\n0\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n0971a4daf92aaeccd906ae389f61e2acfa15ad8c\r\n\$9\r\napisecret\r\n\$40\r\na90d2ba21b228ec36a0ddd0e8349e67d838d3388\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n1321192583\r\n", '' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\nf8bfab6057362d6d7b265f1ea48b9ec49cb748f4\r\n\$8\r\npassword\r\n\$40\r\n508aab8bcce8dc15b2af920eb31dc9b466241301\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n0\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n0971a4daf92aaeccd906ae389f61e2acfa15ad8c\r\n\$9\r\napisecret\r\n\$40\r\na90d2ba21b228ec36a0ddd0e8349e67d838d3388\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
+
+    # /api/delnews
+    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
+    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
+    [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
+      'user:1' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
+    [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n2\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
+    [ send => "\$5\r\nuser1\r\n", '' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$10\r\n1321200741\r\n", '' ],
+    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n", '' ],
+    [ send => "\$-1\r\n", '' ],
+    [ recv => "*4\r\n\$5\r\nhmset\r\n\$6\r\nnews:2\r\n\$3\r\ndel\r\n\$1\r\n1\r\n", '' ],
+    [ send => "+OK\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nzrem\r\n\$8\r\nnews.top\r\n\$1\r\n2\r\n", '' ],
+    [ send => ":1\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nzrem\r\n\$9\r\nnews.cron\r\n\$1\r\n2\r\n", '' ],
+    [ send => ":1\r\n", '' ],
 
    ]
   ]
