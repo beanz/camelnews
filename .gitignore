@@ -1,4 +1,6 @@
 *~
 .*.swp
 /.build
+/cover_db
 /.tdldb.bak
+/public/images/favicon.png
