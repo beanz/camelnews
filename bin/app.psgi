@@ -1055,7 +1055,8 @@ sub create_user {
   if ($r->exists('username.to.id:'.(lc $username))) {
     return (undef, 'Username is busy, please try a different one.');
   }
-  if (rate_limit_by_ip($cfg->{PreventCreateUserTime},
+  if (exists $cfg->{PreventCreateUserTime} &&
+      rate_limit_by_ip($cfg->{PreventCreateUserTime},
                        'create_user', $req->address)) {
     return (undef, 'Please wait some time before creating a new user.');
   }
@@ -1398,7 +1399,8 @@ sub insert_news {
     unless ($textpost);
   # Set a timeout indicating when the user may post again
   $r->setex('user:'.$user->{'id'}.':submitted_recently',
-            $cfg->{NewsSubmissionBreak}, '1');
+            $cfg->{NewsSubmissionBreak}, '1')
+    if (exists $cfg->{NewsSubmissionBreak});
   return $news_id;
 }
 
