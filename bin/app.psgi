@@ -720,7 +720,7 @@ sub api_delnews {
     unless (check_api_secret());
   unless (check_params('news_id')) {
     return
-      $j->encode({ status => 'err', error => 'Please specify a news title.' });
+      $j->encode({ status => 'err', error => 'Please specify a news id.' });
   }
   if (del_news($req->param('news_id'),$user->{'id'})) {
     return $j->encode({status => 'ok', news_id => -1});
