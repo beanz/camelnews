@@ -8,6 +8,7 @@ BEGIN {
   $root .= '/..';
 }
 use lib $root.'/lib';
+use constant { DEBUG => $ENV{'CAMEL_NEWS_DEBUG'} };
 use Comments;
 use Crypt::PBKDF2;
 use Digest::MD5 qw/md5_hex/;
@@ -76,7 +77,7 @@ my $app =
     $user = auth_user($req->cookies->{auth});
     increment_karma_if_needed($user) if ($user);
     my $p = err('Not found');
-    show $req->method.' '.$req->path_info;
+    show $req->method.' '.$req->path_info if DEBUG;
     given ($req->method) {
       when ('GET') {
         given ($req->path_info) {
@@ -381,7 +382,7 @@ sub logout {
 sub news {
   my ($news_id) = @_;
   my $news = get_news_by_id($news_id);
-  show $news;
+  show $news if DEBUG;
   return err('404 - This news does not exist.') unless ($news);
   # Show the news text if it is a news without URL.
   my $top_comment = '';
@@ -685,7 +686,7 @@ sub api_submit {
   }
 
   my $news_id;
-  show $req->param('news_id');
+  show $req->param('news_id') if DEBUG;
   if ($req->param('news_id') == -1) {
     return $j->encode({
       status => 'err',
@@ -706,7 +707,7 @@ sub api_submit {
       });
     }
   }
-  show $news_id;
+  show $news_id if DEBUG;
   return $j->encode({ status => 'ok', news_id => $news_id });
 }
 
