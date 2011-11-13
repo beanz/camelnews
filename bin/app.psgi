@@ -198,9 +198,9 @@ sub rss {
   my ($news, $count) = get_latest_news();
   $h->rss(version => '2.0', 'xmlns:atom' => 'http://www.w3.org/2005/Atom',
     $h->channel(
-      $h->title($cfg->{SiteName}).' '.
-      $h->link($req->base).' '.
-      $h->description('Description pending').' '.
+      $h->title($cfg->{SiteName}).
+      $h->link($req->base).
+      $h->description('Description pending').
       news_list_to_rss($news)
     )
   );
@@ -218,7 +218,7 @@ sub latest {
      link => '/latest/$',
     );
   $h->page(
-    $h->h2('Latest news').
+    $h->h2('Latest News').
     $h->section(id => 'newslist', list_items(\%paginate))
   );
 }
@@ -1478,12 +1478,12 @@ sub news_to_rss {
   $news{'url'} = $news{'ln_url'} unless ($domain);
 
   $h->item(
-    $h->title($h->entities($news{'title'})).' '.
-    $h->guid($h->entities($news{'url'})).' '.
-    $h->link($h->entities($news{'url'})).' '.
+    $h->title($h->entities($news{'title'})).
+    $h->guid($h->entities($news{'url'})).
+    $h->link($h->entities($news{'url'})).
     $h->description(
       '<![CDATA['.$h->a(href => $news{'ln_url'}, 'Comments').']]>'
-    ).' '.
+    ).
     $h->comments($h->entities($news{'ln_url'}))
   )."\n"
 }
