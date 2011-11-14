@@ -268,7 +268,7 @@ sub usercomments {
     );
 
   $h->page(
-    $h->h2($h->entities($u->{'username'}),' comments').
+    $h->h2($h->entities($u->{'username'}).' comments').
     $h->div(id => 'comments', list_items(\%paginate))
   );
 }
