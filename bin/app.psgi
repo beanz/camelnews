@@ -969,7 +969,7 @@ sub footer {
   $h->footer(
     join ' | ', grep { defined $_ } map {
       $_->[1] ? $h->a(href => $_->[1], $h->entities($_->[0])) : undef
-    } (['source code', 'http://github.com/antirez/lamernews'],
+    } (['source code', 'http://github.com/beanz/camelnews'],
        ['rss feed', '/rss'],
        ['twitter', $cfg->{FooterTwitterLink}],
        ['google group', $cfg->{FooterGoogleGroupLink}]
