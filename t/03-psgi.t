@@ -10,10 +10,13 @@ use constant {
 use HTTP::Request::Common;
 use Plack::Test;
 use Test::More;
+use Test::Differences; unified_diff;
 use AnyEvent::MockTCPServer;
 use AnyEvent;
 use JSON;
 use Test::SharedFork;
+
+$|=1;
 
 my $j = JSON->new;
 my $time = time - 90;
@@ -63,7 +66,7 @@ test_psgi $app, sub {
   my $res = $cb->(GET 'http://localhost/not-found');
   ok(!$res->is_success, 'not found');
   is($res->code, 404, '... status code');
-  is($res->content, 'Not found', '... content');
+  #is($res->content, 'Not found', '... content');
 
   $res = $cb->(POST 'http://localhost/api/create_account',
                Content => [
@@ -72,20 +75,18 @@ test_psgi $app, sub {
                           ]);
   ok($res->is_success, 'create_account correct password');
   is($res->code, 200, '... status code');
-  $c = $res->content;
-  like($c, qr!{"auth":"[0-9a-f]{40}","status":"ok"}!, '... content');
-  my $json = $j->decode($c);
+  my $json =
+    check_json($res->content, [ '"status":"ok"', qr!"auth":"[0-9a-f]{40}"! ]);
   my %headers = ( Cookie => 'auth='.$json->{auth} );
 
   $res =
     $cb->(GET 'http://localhost/api/login?username=user1&password=password1');
   ok($res->is_success, 'login correct password');
   is($res->code, 200, '... status code');
-  $c = $res->content;
-  like($c,
-       qr!^{"auth":"[0-9a-f]{40}","apisecret":"[0-9a-f]{40}","status":"ok"}$!,
-     '... content');
-  $json = $j->decode($c);
+  $json = check_json($res->content,
+                     [ '"status":"ok"',
+                       qr!"auth":"[0-9a-f]{40}"!,
+                       qr!"apisecret":"[0-9a-f]{40}"! ]);
   my $apisecret = $json->{apisecret};
 
   $res = $cb->(POST 'http://localhost/api/submit', %headers,
@@ -98,18 +99,18 @@ test_psgi $app, sub {
                           ]);
   ok($res->is_success, '/api/submit');
   is($res->code, 200, '... status code');
-  is($res->content, '{"status":"ok","news_id":"1"}', '... content');
+  $json = check_json($res->content, [ '"status":"ok"', '"news_id":1' ]);
 
   $res = $cb->(GET 'http://localhost/');
   ok($res->is_success, 'root - success');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  my $c = $res->content;
+  check_content($c, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>
-Top News - Lamer News
+Top news - Lamer News
 </title>
 <meta name="robots" content="nofollow">
 <link rel="stylesheet" href="/css/style.css?v=8" type="text/css">
@@ -121,7 +122,7 @@ Top News - Lamer News
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
-<h2>Top News</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
+<h2>Top news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
 </section>
 </div>
 <footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>setKeyboardNavigation();</script>
@@ -145,8 +146,7 @@ Top News - Lamer News
   $res = $cb->(GET 'http://localhost/rss');
   ok($res->is_success, 'rss - success');
   is($res->code, 200, '... status code');
-  $c = $res->content;
-  is($c,
+  check_content($res->content,
 '<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>
 Lamer News
 </title>
@@ -159,25 +159,24 @@ Test Article
 <guid>http://localhost/news/1</guid><link>
 http://localhost/news/1
 </link>
-<description><![CDATA[<a href="http://localhost/news/1">Comments</a>]]></description><comments>http://localhost/news/1</comments></item>
+<description><![CDATA[<a href="http://localhost/news/1">Comments</a>]]></description> <comments>http://localhost/news/1</comments></item>
 </channel></rss>',
      '... content');
 
   $res = $cb->(GET 'http://localhost/latest');
   ok(!$res->is_success, 'latest - success');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/latest/0', '... location');
+  check_location($res, '/latest/0');
 
   $res = $cb->(GET 'http://localhost/latest/0');
   ok($res->is_success, 'latest/0 - success');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  check_content($res->content, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>
-Latest News - Lamer News
+Latest news - Lamer News
 </title>
 <meta name="robots" content="nofollow">
 <link rel="stylesheet" href="/css/style.css?v=8" type="text/css">
@@ -189,7 +188,7 @@ Latest News - Lamer News
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
-<h2>Latest News</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
+<h2>Latest news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
 </section>
 </div>
 <footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>setKeyboardNavigation();</script>
@@ -201,12 +200,12 @@ Latest News - Lamer News
   $res = $cb->(GET 'http://localhost/replies');
   ok(!$res->is_success, 'replies not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res = $cb->(GET 'http://localhost/saved/0');
   ok(!$res->is_success, 'saved not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res =
     $cb->(GET 'http://localhost/usercomments/user2/0');
@@ -217,18 +216,17 @@ Latest News - Lamer News
   $res = $cb->(GET 'http://localhost/submit');
   ok(!$res->is_success, 'submit not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res = $cb->(GET 'http://localhost/logout');
   ok(!$res->is_success, 'logout not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/', '... location');
+  check_location($res, '/');
 
   $res = $cb->(GET 'http://localhost/news/1');
   ok($res->is_success, 'news/1');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  check_content($res->content, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -246,7 +244,7 @@ Test Article - Lamer News
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
-</section><topcomment><article style="margin-left:0px" id="1-0" data-comment-id="1-0" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago.    </span><pre>some text</pre></article></topcomment><br>
+</section><topcomment><article style="margin-left:0px" id="1-" data-comment-id="1-" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago.    </span><pre>some text</pre></article></topcomment><br>
 <div id="comments">
 </div>
 <script>
@@ -279,24 +277,24 @@ Test Article - Lamer News
   $res = $cb->(GET 'http://localhost/reply/1/1');
   ok(!$res->is_success, 'reply not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res = $cb->(GET 'http://localhost/editcomment/1/1');
   ok(!$res->is_success, 'editcomment not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res = $cb->(GET 'http://localhost/editnews/1');
   ok(!$res->is_success, 'editnews not logged in');
   is($res->code, 302, '... status code');
-  is($res->header('Location'), 'http://localhost/login', '... location');
+  check_location($res, '/login');
 
   $res = $cb->(GET 'http://localhost/user/user1');
   ok($res->is_success, 'user/user1');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
+  $c = $res->content;
   $c =~ s/\d+ points/some points/;
-  is($c, '<!DOCTYPE html>
+  check_content($c, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -347,7 +345,7 @@ user1 - Lamer News
   $res = $cb->(GET 'http://localhost/login');
   ok($res->is_success, 'login');
   is($res->code, 200, '... status code');
-  is($res->content, '<!DOCTYPE html>
+  check_content($res->content, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -393,15 +391,16 @@ password
     $cb->(GET 'http://localhost/api/login?username=user1&password=incorrect');
   ok($res->is_success, 'login incorrect password');
   is($res->code, 200, '... status code');
-  is($res->content,
-     '{"status":"err","error":"No match for the specified username / password pair."}',
-     '... content');
+  $json = check_json($res->content,
+                     [
+                      '"status":"err"',
+                      '"error":"No match for the specified username / password pair."',
+                     ]);
 
   $res = $cb->(GET 'http://localhost/saved/0', %headers);
   ok($res->is_success, 'saved');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -417,21 +416,20 @@ Saved news - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Your saved news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address> <a href="/editnews/1">[edit]</a></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
 </section>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
-', '... content');
+~, '... content');
 
   $res = $cb->(GET 'http://localhost/replies', %headers);
   ok($res->is_success, 'replies');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -447,21 +445,20 @@ Your threads - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Your threads</h2><div id="comments">
 </div>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
-', '... content');
+~, '... content');
 
   $res = $cb->(GET 'http://localhost/submit', %headers);
   ok($res->is_success, 'submit');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, q~<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -482,12 +479,12 @@ Submit a new story - Lamer News
 <form name="f"><input value="-1" name="news_id" type="hidden"><label for="title">
 title
 </label>
-<input name="title" type="text" id="title" size="80"><br>
+<input value="" name="title" type="text" id="title" size="80"><br>
 <label for="url">
 url
 </label>
 <br>
-<input name="url" type="text" id="url" size="60"><br>
+<input value="" name="url" type="text" id="url" size="60"><br>
 or if you don't have an url type some text<br>
 <label for="text">
 text
@@ -502,7 +499,7 @@ text
           });
       </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret.q~"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -518,7 +515,7 @@ text
                           ]);
   ok($res->is_success, '/api/submit');
   is($res->code, 200, '... status code');
-  is($res->content, '{"status":"ok","news_id":"2"}', '... content');
+  $json = check_json($res->content, [ '"status":"ok"', '"news_id":2' ]);
 
   $res = $cb->(POST 'http://localhost/api/postcomment', %headers,
                Content => [
@@ -530,15 +527,15 @@ text
                           ]);
   ok($res->is_success, '/api/postcomment');
   is($res->code, 200, '... status code');
-  is($res->content,
-     '{"comment_id":"1","status":"ok","news_id":"2","parent_id":"-1","op":"insert"}',
-     '... content');
+  $json = check_json($res->content,
+                     [ '"status":"ok"', qr!"news_id":"?2"?!, '"comment_id":1',
+                       qr!"parent_id":"?-1"?!, '"op":"insert"',
+                     ]);
 
   $res = $cb->(GET 'http://localhost/usercomments/user1/0', %headers);
   ok($res->is_success, 'usercomments user1');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, '<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -554,22 +551,21 @@ user1 comments - Lamer News
 <div class="container">
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
-<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret='.$apisecret.'">logout</a></nav></header><div id="content">
-<h2 user1=" comments"><div id="comments">
+<a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
+<h2>user1 comments</h2><div id="comments">
 <article style="margin-left:0px" id="2-1" data-comment-id="2-1" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago. <a href="/comment/2/1" class="reply">link</a> <a href="/reply/2/1" class="reply">reply</a> 1 points <a href="#up" class="uparrow voted">&#9650;</a> <a href="#down" class="downarrow disabled">&#9660;</a><a href="/editcomment/2/1" class="reply">edit</a> (some minutes left)</span><pre>comment</pre></article>
 </div>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "'.$apisecret.'"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
-', '... content');
+~, '... content');
 
   $res = $cb->(GET 'http://localhost/editnews/2', %headers);
   ok($res->is_success, 'editnews/2');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  is($c, q~<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -596,7 +592,7 @@ title
 url
 </label>
 <br>
-<input name="url" type="text" id="url" size="60"><br>
+<input value="" name="url" type="text" id="url" size="60"><br>
 or if you don't have an url type some text<br>
 <label for="text">
 text
@@ -613,7 +609,7 @@ text
             });
         </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret.q~"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -629,7 +625,7 @@ text
                           ]);
   ok($res->is_success, '/api/submit');
   is($res->code, 200, '... status code');
-  is($res->content, '{"status":"ok","news_id":"2"}', '... content');
+  $json = check_json($res->content, [ '"status":"ok"', '"news_id":2' ]);
 
   $res = $cb->(POST 'http://localhost/api/create_account',
                Content => [
@@ -638,18 +634,17 @@ text
                           ]);
   ok($res->is_success, 'create_account correct password');
   is($res->code, 200, '... status code');
-  $c = $res->content;
-  like($c, qr!{"auth":"[0-9a-f]{40}","status":"ok"}!, '... content');
-  $json = $j->decode($c);
+  $json =
+    check_json($res->content, [ '"status":"ok"', qr!"auth":"[0-9a-f]{40}"! ]);
   my %headers2 = ( Cookie => 'auth='.$json->{auth} );
 
   $res = $cb->(GET 'http://localhost/reply/2/1', %headers2);
   ok($res->is_success, 'reply/2/1');
   is($res->code, 200, '... status code');
-  $c = canon($res->content);
-  ok($c =~ m!var apisecret = "([0-9a-f]{40})"!, '... apisecret');
+  $c = $res->content;
+  ok($c =~ m!var apisecret = '([0-9a-f]{40})'!, '... apisecret');
   my $apisecret2 = $1;
-  is($c, q~<!DOCTYPE html>
+  check_content($c, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -676,7 +671,7 @@ Reply to comment - Lamer News
       });
     </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret2.q~"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret2.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -692,9 +687,10 @@ Reply to comment - Lamer News
                           ]);
   ok($res->is_success, '/api/postcomment');
   is($res->code, 200, '... status code');
-  is($res->content,
-     '{"comment_id":"2","status":"ok","news_id":"2","parent_id":"1","op":"insert"}',
-     '... content');
+  $json = check_json($res->content,
+                     [ '"status":"ok"', qr!"news_id":"?2"?!, '"comment_id":2',
+                       qr!"parent_id":"?1"?!, '"op":"insert"',
+                     ]);
 
   $res = $cb->(POST 'http://localhost/api/votenews', %headers2,
                Content => [
@@ -714,12 +710,12 @@ Reply to comment - Lamer News
                           ]);
   ok($res->is_success, '/api/votecomment');
   is($res->code, 200, '... status code');
-  is($res->content, '{"comment_id":"2-1","status":"ok"}', '... content');
+  $json = check_json($res->content, [ '"status":"ok"', '"comment_id":"2-1"' ]);
 
   $res = $cb->(GET 'http://localhost/editcomment/2/2', %headers2);
   ok($res->is_success, '/editcomment/2/2');
   is($res->code, 200, '... status code');
-  is(canon($res->content), q~<!DOCTYPE html>
+  check_content($res->content, q~<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -746,7 +742,7 @@ Edit comment - Lamer News
       });
     </script>
 </div>
-<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = "~.$apisecret2.q~"</script><script>setKeyboardNavigation();</script>
+<footer><a href="http://github.com/antirez/lamernews">source code</a> | <a href="/rss">rss feed</a></footer><script>var apisecret = '~.$apisecret2.q~';</script><script>setKeyboardNavigation();</script>
 </div>
 </body>
 </html>
@@ -759,7 +755,7 @@ Edit comment - Lamer News
                           ]);
   ok($res->is_success, '/api/delnews');
   is($res->code, 200, '... status code');
-  is($res->content, '{"status":"ok","news_id":-1}', '... content');
+  $json = check_json($res->content, [ '"status":"ok"', '"news_id":-1' ]);
 
   $res = $cb->(POST 'http://localhost/api/postcomment', %headers,
                Content => [
@@ -771,14 +767,15 @@ Edit comment - Lamer News
                           ]);
   ok($res->is_success, '/api/postcomment');
   is($res->code, 200, '... status code');
-  is($res->content,
-     '{"comment_id":"1","status":"ok","news_id":"2","parent_id":"-1","op":"delete"}',
-     '... content');
+  $json = check_json($res->content,
+                     [ '"status":"ok"', qr!"news_id":"?2"?!, '"comment_id":1',
+                       qr!"parent_id":"?-1"?!, '"op":"delete"',
+                     ]);
 
   $res = $cb->(GET 'http://localhost/news/2');
   ok($res->is_success, 'news/2 deleted');
   is($res->code, 200, '... status code');
-  is(canon($res->content), '<!DOCTYPE html>
+  check_content($res->content, '<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -795,7 +792,7 @@ Newish article - Lamer News
 <header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
-<section id="newslist"><article class="deleted">[deleted news]</article></section><topcomment><article style="margin-left:0px" id="2-0" data-comment-id="2-0" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user1">user1</a></span> some time ago.    </span><pre>Another article (edited)</pre></article></topcomment><br>
+<section id="newslist"><article class="deleted">[deleted news]</article></section><br>
 <div id="comments">
 <article style="margin-left:0px" class="commented deleted">[comment deleted]</article><article style="margin-left:60px" id="2-2" data-comment-id="2-2" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user2">user2</a></span> some time ago. <a href="/comment/2/2" class="reply">link</a>  1 points <a href="#up" class="uparrow">&#9650;</a> <a href="#down" class="downarrow">&#9660;</a></span><pre>a reply</pre></article>
 </div>
@@ -816,6 +813,30 @@ Newish article - Lamer News
 done_testing;
 waitpid $pid, 0 if ($pid);
 
+sub check_location {
+  my ($res, $expected, $desc) = @_;
+  my $actual = $res->header('Location');
+  $actual =~ s!^https?://[^/]+!!;
+  is $actual, $expected, ($desc || '... location');
+}
+
+sub check_content {
+  my ($actual, $expected, $desc) = @_;
+  eq_or_diff canon($actual), canon($expected), $desc or
+    diag 'check_content: '.(join ' ', caller)."\n";
+}
+
+sub check_json {
+  my ($content, $tests) = @_;
+  my $json;
+  eval { $json = $j->decode($content); };
+  ok($json, '... json decode');
+  foreach my $t (@$tests) {
+    like($content, qr![{,]$t[,}]!, '... json: '.$t);
+  }
+  $json;
+}
+
 sub slurp {
   my $file = shift;
   open my $fh, $file or die "Failed to open $file: $!\n";
@@ -827,10 +848,17 @@ sub slurp {
 
 sub canon {
   my $c = shift;
+  $c =~ s!127\.0\.0\.1:\d+!localhost!g;
+  $c =~ s!localhost\K/(?=\s)!!g;
   $c =~ s!</(?:username|span)>\K[^<]+ago! some time ago!g;
   $c =~ s!\d+ minutes left!some minutes left!g;
   $c =~ s!\bnow\b!some time ago!g;
   $c =~ s!user[12] \K\(\d+\)!(karma)!g;
+  $c =~ # reorder html attributes
+    s!<([^\s/>]+)\s+([^>]+)>!"<$1 ".(join "\n  ", sort split /\s+/, $2).'>'!eg;
+  $c =~ s!<[^>]+>\K(?=[^\n])!\n!g;
+  $c =~ s![^\n]\K<!\n<!g;
+  $c =~ s!(\s+)!$1 =~ /\n/ ? "\n" : ' '!eg;
   $c;
 }
 
@@ -1223,8 +1251,8 @@ sub connections {
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$16\r\nthread:comment:2\r\n\$6\r\nnextid\r\n\$1\r\n1\r\n",
       'hincrby thread:comment:2 nextid' ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$89\r\n", 'hset thread:comment:2 i' ],
-    [ recvline => qr!^{"ctime":\d+,"body":"comment","up":\["1"\],"user_id":"1","score":0,"parent_id":"-1"}$!,
+    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$87\r\n", 'hset thread:comment:2 i' ],
+    [ recvline => qr!^{"ctime":\d+,"body":"comment","up":\[1\],"user_id":"1","score":0,"parent_id":"-1"}$!,
       'hset thread:comment:2 ii' ],
     [ send => ":1\r\n", '' ],
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:2\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n",
@@ -1252,7 +1280,7 @@ sub connections {
     [ recv => "*4\r\n\$9\r\nzrevrange\r\n\$15\r\nuser.comments:1\r\n\$1\r\n0\r\n\$1\r\n9\r\n", '' ],
     [ send => "*1\r\n\$3\r\n2-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
     [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
 
@@ -1331,7 +1359,7 @@ sub connections {
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n2\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":1321183324,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
     [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n3\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n0\r\n", '' ],
 
@@ -1350,13 +1378,13 @@ sub connections {
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n2\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":1321184901,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":1321184901,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$16\r\nthread:comment:2\r\n\$6\r\nnextid\r\n\$1\r\n1\r\n", '' ],
     [ send => ":2\r\n", '' ],
-    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n2\r\n\$88\r\n", 'hset thread:comment:2 i' ],
-    [ recvline => qr!^\{"ctime":\d+,"body":"a reply","up":\["2"\],"user_id":"2","score":0,"parent_id":"1"}$!, 'hset thread:comment:2 ii' ],
+    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n2\r\n\$86\r\n", 'hset thread:comment:2 i' ],
+    [ recvline => qr!^\{"ctime":\d+,"body":"a reply","up":\[2\],"user_id":"2","score":0,"parent_id":"1"}$!, 'hset thread:comment:2 ii' ],
     [ send => ":1\r\n", '' ],
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:2\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n", '' ],
     [ send => ":2\r\n", '' ],
@@ -1424,12 +1452,12 @@ sub connections {
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", 'hgetall user:2' ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\n91169b4c7062accffe3900e1dc9e14e976f3e0c1\r\n\$8\r\npassword\r\n\$40\r\n9c1a21a40138837fb4c227c89ad467e3c7361bea\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nce6a425191040684e89d7e49ad108c3f42686647\r\n\$9\r\napisecret\r\n\$40\r\ned7c2cf86e273f88bcd28251d3eb5e0c718e2bd3\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$time."\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":1321191945,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$89\r\n{\"ctime\":1321191945,\"body\":\"comment\",\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
-    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$100\r\n",
+    [ send => "\$87\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$98\r\n",
       'hset thread:comment:2 i' ],
-    [ recvline => qr!^{"ctime":\d+,"body":"comment","down":\[2\],"up":\["1"\],"user_id":"1","score":0,"parent_id":"-1"}$!,
+    [ recvline => qr!^{"ctime":\d+,"body":"comment","down":\[2\],"up":\[1\],"user_id":"1","score":0,"parent_id":"-1"}$!,
       'hset thread:comment:2 ii' ],
     [ send => ":0\r\n", '' ],
 
@@ -1448,7 +1476,7 @@ sub connections {
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n2\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n2\r\n", '' ],
-    [ send => "\$88\r\n{\"ctime\":".$time.",\"body\":\"a reply\",\"up\":[\"2\"],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
+    [ send => "\$86\r\n{\"ctime\":".$time.",\"body\":\"a reply\",\"up\":[2],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", '' ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$8\r\nusername\r\n\$5\r\nuser2\r\n\$4\r\nsalt\r\n\$40\r\nf8bfab6057362d6d7b265f1ea48b9ec49cb748f4\r\n\$8\r\npassword\r\n\$40\r\n508aab8bcce8dc15b2af920eb31dc9b466241301\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n0\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n0971a4daf92aaeccd906ae389f61e2acfa15ad8c\r\n\$9\r\napisecret\r\n\$40\r\na90d2ba21b228ec36a0ddd0e8349e67d838d3388\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
 
@@ -1490,23 +1518,23 @@ sub connections {
     [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:2\r\n\$1\r\n1\r\n", '' ],
     [ send => "\$-1\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$100\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$98\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"down\":[2],\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n", '' ],
-    [ send => "\$100\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
-    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$108\r\n{\"ctime\":1321221473,\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ send => "\$98\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"down\":[2],\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
+    [ recv => "*4\r\n\$4\r\nhset\r\n\$16\r\nthread:comment:2\r\n\$1\r\n1\r\n\$106\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n", '' ],
     [ send => ":0\r\n", '' ],
     [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:2\r\n\$8\r\ncomments\r\n\$2\r\n-1\r\n", '' ],
     [ send => ":1\r\n", '' ],
 
     # /news/2
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", 'hgetall news:2' ],
     [ send => "*22\r\n\$2\r\nid\r\n\$1\r\n2\r\n\$5\r\ntitle\r\n\$14\r\nNewish article\r\n\$3\r\nurl\r\n\$31\r\ntext://Another article (edited)\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103070807944016\r\n\$2\r\nup\r\n\$1\r\n2\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n1\r\n\$3\r\ndel\r\n\$1\r\n1\r\n", '' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n", '' ],
+    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
+      'hget user:1' ],
     [ send => "\$5\r\nuser1\r\n", '' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
-    [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n09f4675e12299c9513046612c09f87d04511ad86\r\n\$8\r\npassword\r\n\$40\r\n282ae99397c03876543728819ce259ae547ecda5\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n7a5c29d3677dd03d8aa2e03b93af82a9860b417d\r\n\$9\r\napisecret\r\n\$40\r\ne69d6052ba38ad632a40502d99521ed74d0fe1b9\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n1\r\n", '' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$16\r\nthread:comment:2\r\n", '' ],
-    [ send => "*6\r\n\$6\r\nnextid\r\n\$1\r\n2\r\n\$1\r\n1\r\n\$108\r\n{\"ctime\":1321222787,\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[\"1\"],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n\$1\r\n2\r\n\$88\r\n{\"ctime\":1321222788,\"body\":\"a reply\",\"up\":[\"2\"],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
+    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$16\r\nthread:comment:2\r\n",
+      'hgetall thread:comment:2' ],
+    [ send => "*6\r\n\$6\r\nnextid\r\n\$1\r\n2\r\n\$1\r\n1\r\n\$106\r\n{\"ctime\":".$time.",\"body\":\"comment\",\"del\":1,\"down\":[2],\"up\":[1],\"user_id\":\"1\",\"score\":0,\"parent_id\":\"-1\"}\r\n\$1\r\n2\r\n\$86\r\n{\"ctime\":".$time.",\"body\":\"a reply\",\"up\":[2],\"user_id\":\"2\",\"score\":0,\"parent_id\":\"1\"}\r\n", '' ],
     [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
     [ send => "*26\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n09f4675e12299c9513046612c09f87d04511ad86\r\n\$8\r\npassword\r\n\$40\r\n282ae99397c03876543728819ce259ae547ecda5\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n7a5c29d3677dd03d8aa2e03b93af82a9860b417d\r\n\$9\r\napisecret\r\n\$40\r\ne69d6052ba38ad632a40502d99521ed74d0fe1b9\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n\$7\r\nreplies\r\n\$1\r\n1\r\n", '' ],
       [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:2\r\n", '' ],
