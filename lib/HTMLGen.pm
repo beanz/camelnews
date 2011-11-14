@@ -64,7 +64,7 @@ sub gentag {
   my $nl = exists $newlinetags{$tag} ? "\n" : '';
   my $attribs = '';
   foreach (keys %attr) {
-    my $v = $attr{$_} or next;
+    my $v = $attr{$_} // next;
     $attribs .= ' '.$_.'="'.entities($v).'"';
   }
   if (defined $content) {
