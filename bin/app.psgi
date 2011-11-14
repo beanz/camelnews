@@ -189,9 +189,9 @@ my $app =
   };
 
 sub top {
-  $h->set_title('Top News - '.$cfg->{SiteName});
+  $h->set_title('Top news - '.$cfg->{SiteName});
   my ($news, $numitems) = get_top_news();
-  $h->page($h->h2('Top News').news_list_to_html($news));
+  $h->page($h->h2('Top news').news_list_to_html($news));
 }
 
 sub rss {
@@ -208,7 +208,7 @@ sub rss {
 
 sub latest {
   my ($start) = @_;
-  $h->set_title('Latest News - '.$cfg->{SiteName});
+  $h->set_title('Latest news - '.$cfg->{SiteName});
   my %paginate =
     (
      get => sub { my ($start, $count) = @_; get_latest_news($start, $count); },
@@ -218,7 +218,7 @@ sub latest {
      link => '/latest/$',
     );
   $h->page(
-    $h->h2('Latest News').
+    $h->h2('Latest news').
     $h->section(id => 'newslist', list_items(\%paginate))
   );
 }
