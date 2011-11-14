@@ -710,7 +710,7 @@ sub api_submit {
     }
   }
   show $news_id if DEBUG;
-  return $j->encode({ status => 'ok', news_id => $news_id });
+  return $j->encode({ status => 'ok', news_id => 0+$news_id });
 }
 
 sub api_delnews {
@@ -777,7 +777,7 @@ sub api_postcomment {
   return $j->encode({
     status => 'ok',
     op => $info->{'op'},
-    comment_id => $info->{'comment_id'},
+    comment_id => 0+$info->{'comment_id'},
     parent_id => $req->param('parent_id'),
     news_id => $req->param('news_id')
   });
@@ -1650,7 +1650,7 @@ sub insert_comment {
        parent_id => $parent_id,
        user_id => $user_id,
        ctime => time,
-       up => [$user_id],
+       up => [0+$user_id],
       };
     my $comment_id = $comments->insert($news_id, $comment);
     return unless ($comment_id);
