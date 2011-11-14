@@ -394,7 +394,7 @@ sub news {
              'user_id' => $news->{'user_id'},
              'thread_id' => $news->{'id'},
              'topcomment' => 1,
-             'id' => 0,
+             'id' => '',
             };
     my $user = get_user_by_id($news->{'user_id'}) || $cfg->{DeletedUser};
     $top_comment = $h->topcomment(comment_to_html($c, $user));
