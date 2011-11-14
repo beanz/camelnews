@@ -962,7 +962,7 @@ sub header {
 sub footer {
   my ($h) = @_;
   my $apisecret =
-    $user ? $h->script('var apisecret = "'.$user->{'apisecret'}.'"') : '';
+    $user ? $h->script("var apisecret = '".$user->{'apisecret'}."';") : '';
   my $keyboardnavigation =
     ($cfg->{KeyboardNavigation} ? $h->script('setKeyboardNavigation();') : '');
 
