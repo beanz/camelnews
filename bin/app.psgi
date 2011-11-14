@@ -387,7 +387,7 @@ sub news {
   return err('404 - This news does not exist.') unless ($news);
   # Show the news text if it is a news without URL.
   my $top_comment = '';
-  if (!news_domain($news)) {
+  if (!news_domain($news) && !$news->{del}) {
     my $c = {
              'body' => news_text($news),
              'ctime' => $news->{'ctime'},
