@@ -375,7 +375,7 @@ sub submit {
 
 sub logout {
   if ($user and check_api_secret()) {
-    update_auth_token($user->{'id'});
+    update_auth_token($user);
   }
   return redirect(302, '/');
 }
@@ -613,7 +613,7 @@ sub user {
 
 sub api_logout {
   if ($user and check_api_secret()) {
-    update_auth_token($user->{'id'});
+    update_auth_token($user);
     return $j->encode({status => 'ok'});
   } else {
     return $j->encode({
@@ -1088,13 +1088,11 @@ sub create_user {
 # Return value: on success the new token is returned. Otherwise nil.
 # Side effect: the auth token is modified.
 sub update_auth_token {
-  my ($user_id) = @_;
-  my $user = get_user_by_id($user_id);
-  return unless ($user);
+  my ($user) = @_;
   $r->del('auth:'.$user->{'auth'});
   my $new_auth_token = get_rand();
-  $r->hmset('user:'.$user_id, 'auth', $new_auth_token);
-  $r->set('auth:'.$new_auth_token, $user_id);
+  $r->hmset('user:'.$user->{'id'}, 'auth', $new_auth_token);
+  $r->set('auth:'.$new_auth_token, $user->{'id'});
   return $new_auth_token
 }
 
