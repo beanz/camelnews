@@ -655,10 +655,11 @@ sub api_create_account {
       error => 'Password is too short. Min length: '.$cfg->{PasswordMinLength}
     });
   }
-  my ($auth,$errmsg) = create_user($req->param('username'),$password);
+  my ($auth, $apisecret, $errmsg) =
+    create_user($req->param('username'),$password);
   if ($auth) {
     # TOFIX create doesn't have secret like login does?
-    return $j->encode({status => 'ok', auth => $auth});
+    return $j->encode({status => 'ok', auth => $auth, apisecret => $apisecret});
   } else {
     return $j->encode({ status => 'err', error => $errmsg });
   }
@@ -1053,15 +1054,16 @@ sub create_user {
   my ($username, $password) = @_;
 
   if ($r->exists('username.to.id:'.(lc $username))) {
-    return (undef, 'Username is busy, please try a different one.');
+    return (undef, undef, 'Username is busy, please try a different one.');
   }
   if (exists $cfg->{PreventCreateUserTime} &&
       rate_limit_by_ip($cfg->{PreventCreateUserTime},
                        'create_user', $req->address)) {
-    return (undef, 'Please wait some time before creating a new user.');
+    return (undef, undef, 'Please wait some time before creating a new user.');
   }
   my $id = $r->incr('users.count');
   my $auth_token = get_rand();
+  my $apisecret = get_rand();
   my $salt = get_rand();
   $r->hmset('user:'.$id,
             'id' => $id,
@@ -1073,12 +1075,12 @@ sub create_user {
             'about' => '',
             'email' => '',
             'auth' => $auth_token,
-            'apisecret' => get_rand(),
+            'apisecret' => $apisecret,
             'flags' => '',
             'karma_incr_time' => time);
     $r->set('username.to.id:'.(lc $username), $id);
     $r->set('auth:'.$auth_token, $id);
-    return ($auth_token, undef);
+    return ($auth_token, $apisecret, undef);
 }
 
 # Update the specified user authentication token with a random generated
