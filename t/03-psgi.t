@@ -11,10 +11,11 @@ use HTTP::Request::Common;
 use Plack::Test;
 use Test::More;
 use Test::Differences; unified_diff;
-use AnyEvent::MockTCPServer;
 use AnyEvent;
 use JSON;
 use Test::SharedFork;
+use lib 't/lib';
+use AnyEvent::MockRedis;
 
 $|=1;
 
@@ -27,7 +28,7 @@ my $pid;
 unless (USE_REAL_SERVER) {
   my $connections = connections();
   my $server;
-  eval { $server = AnyEvent::MockTCPServer->new(connections => $connections); };
+  eval { $server = AnyEvent::MockRedis->new(connections => $connections); };
   plan skip_all => "Failed to create dummy server: $@" if ($@);
   ($host, $port) = $server->connect_address;
   $pid = fork;
@@ -73,7 +74,7 @@ test_psgi $app, sub {
                            username => 'user1',
                            password => 'password1',
                           ]);
-  ok($res->is_success, 'create_account correct password');
+  ok($res->is_success, 'create_account');
   is($res->code, 200, '... status code');
   my $json =
     check_json($res->content, [ '"status":"ok"', qr!"auth":"[0-9a-f]{40}"! ]);
@@ -635,7 +636,14 @@ text
   ok($res->is_success, 'create_account correct password');
   is($res->code, 200, '... status code');
   $json =
-    check_json($res->content, [ '"status":"ok"', qr!"auth":"[0-9a-f]{40}"! ]);
+    check_json($res->content,
+               [ '"status":"ok"', qr!"auth":"[0-9a-f]{40}"! ]);
+  if ($json->{apisecret}) {
+    like($json->{apisecret}, qr!^[0-9a-f]{40}$!, '... apisecret');
+  } else {
+    diag "/api/create_account doesn't return apisecret, nevermind\n";
+  }
+
   my %headers2 = ( Cookie => 'auth='.$json->{auth} );
 
   $res = $cb->(GET 'http://localhost/reply/2/1', %headers2);
@@ -643,7 +651,8 @@ text
   is($res->code, 200, '... status code');
   $c = $res->content;
   ok($c =~ m!var apisecret = '([0-9a-f]{40})'!, '... apisecret');
-  my $apisecret2 = $1;
+  my $apisecret2 = $1; # note this is to handle the mock case
+
   check_content($c, q~<!DOCTYPE html>
 <html>
 <head>
@@ -849,6 +858,7 @@ sub slurp {
 sub canon {
   my $c = shift;
   $c =~ s!127\.0\.0\.1:\d+!localhost!g;
+  $c =~ s!/beanz/camelnews!/antirez/lamernews!g;
   $c =~ s!localhost\K/(?=\s)!!g;
   $c =~ s!</(?:username|span)>\K[^<]+ago! some time ago!g;
   $c =~ s!\d+ minutes left!some minutes left!g;
@@ -866,208 +876,151 @@ sub connections {
   [
    [
     # create_account user1
-    [ recv => "*2\r\n\$6\r\nexists\r\n\$20\r\nusername.to.id:user1\r\n",
-      'exists user1' ],
+    [ recvredis => [qw/exists username.to.id:user1/] ],
     [ send => ":0\r\n", 'no' ],
-    [ recv => "*2\r\n\$4\r\nincr\r\n\$11\r\nusers.count\r\n",
-      'incr users.count' ],
+    [ recvredis => [qw/incr users.count/] ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*26\r\n\$5\r\nhmset\r\n\$6\r\nuser:1\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n", 'hmset user:1 i' ],
-    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 ii' ],
-    [ recv => "\$8\r\npassword\r\n\$40\r\n", 'hmset user:1 iii' ],
-    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 iv' ],
-    [ recv => "\$5\r\nctime\r\n\$10\r\n", 'hmset user:1 v' ],
-    [ recvline => qr!^\d+$!, 'hmset user:1 vi' ],
-    [ recv => "\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n",
-      'hmset user:1 vii' ],
-    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 viii' ],
-    [ recv => "\$9\r\napisecret\r\n\$40\r\n", 'hmset user:1 ix' ],
-    [ recvline => qr!^[0-9a-f]{40}$!, 'hmset user:1 x' ],
-    [ recv => "\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n", 'hmset user:1 xi' ],
-    [ recvline => qr!^\d+$!, 'hmset user:1 xii' ],
+    [ recvredis => [qw/hmset user:1/, id => 1, username => 'user1',
+                    salt => qr!^[0-9a-f]{40}$!,
+                    password => qr!^[0-9a-f]{40}$!,
+                    ctime => qr!^\d+$!, karma => '1', about => '',
+                    email => '', auth => qr!^[0-9a-f]{40}$!,
+                    apisecret => qr!^[0-9a-f]{40}$!, flags => '',
+                    karma_incr_time => qr!^\d+$!] ],
     [ send => "+OK\r\n", 'ok' ],
-    [ recv => "*3\r\n\$3\r\nset\r\n\$20\r\nusername.to.id:user1\r\n\$1\r\n1\r\n",
-      'set username.to.id:user1 1' ],
+    [ recvredis => [qw/set username.to.id:user1 1/] ],
     [ send => "+OK\r\n", 'ok' ],
-    [ recv => "*3\r\n\$3\r\nset\r\n\$45\r\n", 'set auth:... 1 i' ],
-    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'set auth:... 1 ii' ],
-    [ recv => "\$1\r\n1\r\n", 'set auth:... 1 iii' ],
+    [ recvredis => [set => qr!^auth:[0-9a-f]{40}$!, 1] ],
     [ send => "+OK\r\n", 'ok' ],
 
     # login user1
-    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n", '' ],
+    [ recvredis => [qw/get username.to.id:user1/] ],
     [ send => "\$1\r\n1\r\n", '' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", '' ],
+    [ recvredis => [qw/hgetall user:1/], ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\n6b72a45358fb859b391d2d1ce2226fa61a74ed9e\r\n\$8\r\npassword\r\n\$40\r\ne78514e6c6101112846d2b9f60dc5cdf918c108d\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n9b37ef4d421b50957c45afcf588b877896e176d4\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n", '' ],
 
     # submit news:1
-    [ recv => "*2\r\n\$3\r\nget\r\n\$45\r\n", 'get auth:... i' ],
-    [ recvline => qr!^auth:[0-9a-f]{40}$!, 'get auth:... ii' ],
+    [ recvredis => [get => qr!^auth:[0-9a-f]{40}$!] ],
     [ send => "\$1\r\n1\r\n", 'belongs to user:1' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ recvredis => [hgetall => 'user:1'] ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n2\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\n5abaad9749326aaf9f984a2ab2f6f315e8f6223a\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
-    [ recv => "*2\r\n\$3\r\nttl\r\n\$25\r\nuser:1:submitted_recently\r\n",
-      'user:1:submitted_recently' ],
+    [ recvredis => [qw/ttl user:1:submitted_recently/] ],
     [ send => ":-1\r\n", 'not recently' ],
-    [ recv => "*2\r\n\$4\r\nincr\r\n\$10\r\nnews.count\r\n", 'incr news.count' ],
+    [ recvredis => [qw/incr news.count/] ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*22\r\n\$5\r\nhmset\r\n\$6\r\nnews:1\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n",
-      'hmset news:1 i' ],
-    [ recvline => qr!^\d{10}$!, 'hmset news:1 ii (ctime)' ],
-    [ recv => "\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
-      'hmset news:1 iii' ],
+    [ recvredis => [qw/hmset news:1/, id => 1, title => 'Test Article',
+                    url => 'text://some text', user_id => 1,
+                    ctime => qr!^\d{10}$!, score => 0, rank => 0,
+                    up => 0, down => 0, comments => 0 ] ],
     [ send => "+OK\r\n", 'hmset ok' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [hgetall => 'news:1'] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$11\r\nNew article\r\n\$3\r\nurl\r\n\$22\r\ntext://Another article\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n0\r\n\$4\r\nrank\r\n\$1\r\n0\r\n\$2\r\nup\r\n\$1\r\n0\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1 username' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
-    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:1\r\n\$1\r\n1\r\n",
-      'zscore news.up:1' ],
+    [ recvredis => [qw/zscore news.up:1 1/] ],
     [ send => "\$-1\r\n", '-1' ],
-    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:1\r\n\$1\r\n1\r\n",
-      'zscore news.down:1' ],
+    [ recvredis => [qw/zscore news.down:1 1/] ],
     [ send => "\$-1\r\n", '-1' ],
-    [ recv => "*3\r\n\$6\r\nzscore\r\n\$9\r\nnews.up:1\r\n\$1\r\n1\r\n",
-      'zscore news.up:1' ],
+    [ recvredis => [qw/zscore news.up:1 1/] ],
     [ send => "\$-1\r\n", '-1' ],
-    [ recv => "*3\r\n\$6\r\nzscore\r\n\$11\r\nnews.down:1\r\n\$1\r\n1\r\n",
-      'zscore news.down:1' ],
+    [ recvredis => [qw/zscore news.down:1 1/] ],
     [ send => "\$-1\r\n", '-1' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$9\r\nnews.up:1\r\n\$10\r\n",
-      'zadd news.up:1 i'],
-    [ recvline => qr!^\d{10}$!, 'zadd news.up:1 ii (ctime)' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd news.up:1 iii' ],
+    [ recvredis => [qw/zadd news.up:1 /, qr!^\d{10}$!, '1'] ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*4\r\n\$7\r\nhincrby\r\n\$6\r\nnews:1\r\n\$2\r\nup\r\n\$1\r\n1\r\n",
-      'hincrby news:1 up 1' ],
+    [ recvredis => [qw/hincrby news:1 up 1/] ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$12\r\nuser.saved:1\r\n\$10\r\n",
-      'zadd user.saved:1 0' ],
-    [ recvline => qr!^\d{10}$!, 'zadd user.saved:1 ii (ctime)' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd user.saved:1 iii' ],
+    [ recvredis => [qw/zadd user.saved:1/, qr!^\d{10}$!, '1'] ],
     [ send => ":1\r\n", 'zadd ok' ],
-    [ recv => "*4\r\n\$6\r\nzrange\r\n\$9\r\nnews.up:1\r\n\$1\r\n0\r\n\$2\r\n-1\r\n",
-      'zrange news.up:1' ],
+    [ recvredis => [qw/zrange news.up:1 0 -1/] ],
     [ send => "*1\r\n\$1\r\n1\r\n", '1' ],
-    [ recv => "*4\r\n\$6\r\nzrange\r\n\$11\r\nnews.down:1\r\n\$1\r\n0\r\n\$2\r\n-1\r\n",
-      'zrange news.down:1' ],
+    [ recvredis => [qw/zrange news.down:1 0 -1/] ],
     [ send => "*0\r\n", '0' ],
-    [ recv => "*6\r\n\$5\r\nhmset\r\n\$6\r\nnews:1\r\n\$5\r\nscore\r\n\$3\r\n0.5\r\n\$4\r\nrank\r\n", 'hmset news:1 score+rank i' ],
-    [ recvline => qr!^\$\d+$!, 'hmset news:1 score+rank ii' ],
-    [ recvline => qr!^[\.0-9]+$!, 'hmset news:1 score+rank iii' ],
+    [ recvredis => [qw/hmset news:1 score 0.5 rank/, qr!^[\.0-9]+$! ] ],
     [ send => "+OK\r\n", 'ok' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$8\r\nnews.top\r\n", 'zadd news.top i' ],
-    [ recvline => qr!^\$\d+$!, 'zadd news.top ii' ],
-    [ recvline => qr!^[\.0-9]+$!, 'zadd news.top iii' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd news.top iv' ],
+    [ recvredis => [qw/zadd news.top/, qr!^[\.0-9]+$!, '1'] ],
     [ send => ":1\r\n", 'zadd news.top reply' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$13\r\nuser.posted:1\r\n\$10\r\n",
-      'zadd user.posted:1' ],
-    [ recvline => qr!^\d+$!, 'zadd user.posted:1 ii' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd user.posted:1 iii' ],
+    [ recvredis => [qw/zadd user.posted:1/, qr!^\d+$!, '1'] ],
     [ send => ":1\r\n", '' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$9\r\nnews.cron\r\n\$10\r\n",
-      'zadd news.cron i' ],
-    [ recvline => qr!^\d+$!, 'zadd news.cron ii' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd news.cron iii' ],
+    [ recvredis => [qw/zadd news.cron/, qr!^\d+$!, '1'] ],
     [ send => ":1\r\n", '' ],
-    [ recv => "*4\r\n\$4\r\nzadd\r\n\$8\r\nnews.top\r\n", 'zadd news.top i' ],
-    [ recvline => qr!^\$\d+$!, 'zadd news.top ii' ],
-    [ recvline => qr!^[\.0-9]+$!, 'zadd news.top iii' ],
-    [ recv => "\$1\r\n1\r\n", 'zadd news.top iv' ],
+    [ recvredis => [qw/zadd news.top/, qr!^[\.0-9]+$!, '1'] ],
     [ send => ":0\r\n", '' ],
 
     # /
-    [ recv => "*2\r\n\$5\r\nzcard\r\n\$8\r\nnews.top\r\n", 'zcard news.top' ],
+    [ recvredis => [qw/zcard news.top/] ],
     [ send => ":1\r\n", '1 article news' ],
-    [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
-              "\$8\r\nnews.top\r\n\$1\r\n0\r\n\$2\r\n29\r\n",
-      'zrevrange news.top' ],
+    [ recvredis => [qw/zrevrange news.top 0 29/] ],
     [ send => "*1\r\n\$1\r\n1\r\n", '1 article news' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [qw/hgetall news:1/] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103086555529132\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1 username' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
     # /css
     # /js
 
     # /rss
-    [ recv => "*2\r\n\$5\r\nzcard\r\n\$9\r\nnews.cron\r\n", 'zcard news.cron' ],
+    [ recvredis => [qw/zcard news.cron/] ],
     [ send => ":1\r\n", '1 article news' ],
-    [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
-              "\$9\r\nnews.cron\r\n\$1\r\n0\r\n\$2\r\n99\r\n",
-      'zrevrange news.cron' ],
+    [ recvredis => [qw/zrevrange news.cron 0 99/] ],
     [ send => "*1\r\n\$1\r\n1\r\n", '1 article news' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [qw/hgetall news:1/] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103086555529132\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1 username' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
     # /latest redirect
 
     # /latest/0
-    [ recv => "*2\r\n\$5\r\nzcard\r\n\$9\r\nnews.cron\r\n", 'zcard news.cron' ],
+    [ recvredis => [qw/zcard news.cron/] ],
     [ send => ":1\r\n", '1 article news' ],
-    [ recv => "*4\r\n\$9\r\nzrevrange\r\n".
-              "\$9\r\nnews.cron\r\n\$1\r\n0\r\n\$2\r\n99\r\n",
-      'zrevrange news.cron' ],
+    [ recvredis => [qw/zrevrange news.cron 0 99/] ],
     [ send => "*1\r\n\$1\r\n1\r\n", '1 article news' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [qw/hgetall news:1/] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$18\r\n0.0103086555529132\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n",
       'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1 username' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
 
     # /replies
     # /saved/0
 
     # /usercomments/user2/0
-    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user2\r\n",
-      'nget username.to.id:user2' ],
+    [ recvredis => [qw/get username.to.id:user2/] ],
     [ send => "\$-1\r\n", 'no such user' ],
 
     # /submit
     # /logout
 
     # /news/1
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [qw/hgetall news:1/] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00801850412002884\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", 'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ recvredis => [qw/hgetall user:1/] ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user1 (all)' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$16\r\nthread:comment:1\r\n",
-      'hgetall thread:comment:1' ],
+    [ recvredis => [qw/hgetall thread:comment:1/] ],
     [ send => "*0\r\n", 'no comments' ],
 
     # /news/2
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n",
-      'hgetall news:2' ],
+    [ recvredis => [qw/hgetall news:2/] ],
     [ send => "*0\r\n", 'no such news' ],
 
     # /comment/1/2
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:1\r\n", 'hgetall news:1' ],
+    [ recvredis => [qw/hgetall news:1/] ],
     [ send => "*20\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$5\r\ntitle\r\n\$12\r\nTest Article\r\n\$3\r\nurl\r\n\$16\r\ntext://some text\r\n\$7\r\nuser_id\r\n\$1\r\n1\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nscore\r\n\$1\r\n1\r\n\$4\r\nrank\r\n\$19\r\n0.00488120052790944\r\n\$2\r\nup\r\n\$1\r\n1\r\n\$4\r\ndown\r\n\$1\r\n0\r\n\$8\r\ncomments\r\n\$1\r\n0\r\n", 'news:1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$6\r\nuser:1\r\n\$8\r\nusername\r\n",
-      'hget user:1' ],
+    [ recvredis => [qw/hget user:1 username/] ],
     [ send => "\$5\r\nuser1\r\n", 'user1' ],
-    [ recv => "*3\r\n\$4\r\nhget\r\n\$16\r\nthread:comment:1\r\n\$1\r\n2\r\n",
-      'hget thread:comment:1' ],
+    [ recvredis => [qw/hget thread:comment:1 2/] ],
     [ send => "\$-1\r\n", 'no such comment' ],
 
     # /comment/2/2
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nnews:2\r\n", 'hgetall news:2' ],
+    [ recvredis => [qw/hgetall news:2/] ],
     [ send => "*0\r\n", 'no such news' ],
 
     # /reply/1/1
@@ -1075,21 +1028,18 @@ sub connections {
     # /editnews/1
 
     # /user/user1
-    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user1\r\n",
-      'username.to.id:user1' ],
+    [ recvredis => [qw/get username.to.id:user1/] ],
     [ send => "\$1\r\n1\r\n", 'user:1' ],
-    [ recv => "*2\r\n\$7\r\nhgetall\r\n\$6\r\nuser:1\r\n", 'hgetall user:1' ],
+    [ recvredis => [qw/hgetall user:1/] ],
     [ send => "*24\r\n\$2\r\nid\r\n\$1\r\n1\r\n\$8\r\nusername\r\n\$5\r\nuser1\r\n\$4\r\nsalt\r\n\$40\r\na8da48809f99800c1e6bd5933086134edf377b78\r\n\$8\r\npassword\r\n\$40\r\n372fd9286caed14834465bbd309fe7e1a36530fe\r\n\$5\r\nctime\r\n\$10\r\n".$time."\r\n\$5\r\nkarma\r\n\$1\r\n1\r\n\$5\r\nabout\r\n\$0\r\n\r\n\$5\r\nemail\r\n\$0\r\n\r\n\$4\r\nauth\r\n\$40\r\nd6d5c367d3bd17aa9a088cf3a13c8a21d17ad5e5\r\n\$9\r\napisecret\r\n\$40\r\na3f9381b0f3f0201ad762f913623070d0e2335db\r\n\$5\r\nflags\r\n\$0\r\n\r\n\$15\r\nkarma_incr_time\r\n\$10\r\n".$ktime."\r\n",
       'user:1' ],
-    [ recv => "*2\r\n\$5\r\nzcard\r\n\$13\r\nuser.posted:1\r\n",
-      'user.posted:1' ],
+    [ recvredis => [qw/zcard user.posted:1/] ],
     [ send => ":1\r\n", '1' ],
-    [ recv => "*2\r\n\$5\r\nzcard\r\n\$15\r\nuser.comments:1\r\n", '' ],
+    [ recvredis => [qw/zcard user.comments:1/] ],
     [ send => ":0\r\n", '0' ],
 
     # /user/user2
-    [ recv => "*2\r\n\$3\r\nget\r\n\$20\r\nusername.to.id:user2\r\n",
-      'username.to.id:user2' ],
+    [ recvredis => [qw/get username.to.id:user2/] ],
     [ send => "\$-1\r\n", 'no such user' ],
 
     # /login?username=user1&password=incorrect
