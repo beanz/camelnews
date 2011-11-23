@@ -11,9 +11,45 @@ use AnyEvent;
 use AnyEvent::Handle;
 use Test::More;
 use Sub::Name;
+use Carp qw/croak/;
 use Data::Show;
 
-=action C<recvredis($handle, $actions, $expect, $desc)>
+=head2 C<sendredis($handle, $actions, $send, $desc)>
+
+Sends the redis message, C<$send>, to the client.
+
+=cut
+
+sub sendredis {
+  my ($self, $handle, $actions, $send, $desc) = @_;
+  unless (defined $desc) {
+    $desc = ref $send ? 'redis reply' : $send;
+    $desc = substr($desc, 0, 60).'...' if (length $desc > 63);
+  }
+  print STDERR 'Sending: ', $desc, "\n" if DEBUG;
+  print STDERR 'Sending ', length $send, " bytes\n" if DEBUG;
+  $handle->push_write(_encode($send));
+  $self->next_action($handle, $actions);
+}
+
+sub _encode {
+  my $s = shift;
+  if (ref $s) {
+    my ($t, $v) = @$s;
+    if ($t eq '$') {
+      $s = '$'.length($v)."\r\n".$v."\r\n";
+    } elsif ($t eq '*') {
+      $s = '*'.(scalar @$v)."\r\n".join '', map { _encode(['$' => $_]) } @$v;
+    } else {
+      croak "Invalid redis message @$s\n";
+    }
+  } else {
+    $s .= "\r\n" unless ($s =~ /\r\n$/);
+  }
+  return $s;
+}
+
+=head2 C<recvredis($handle, $actions, $expect, $desc)>
 
 Waits for a redis protocol message of data C<$expect> from the client.
 
