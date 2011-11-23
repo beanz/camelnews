@@ -817,6 +817,42 @@ Newish article - Lamer News
 </html>
 ', '... content');
 
+  $res = $cb->(GET 'http://localhost/comment/2/1');
+  ok($res->is_success, 'comment/2/1');
+  is($res->code, 200, '... status code');
+  check_content($res->content, q~<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>
+Newish article - Lamer News
+</title>
+<meta name="robots" content="nofollow">
+<link rel="stylesheet" href="/css/style.css?v=8" type="text/css">
+<link rel="shortcut icon" href="/images/favicon.png">
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script><script src="/js/app.js?v=8"></script>
+</head>
+<body>
+<div class="container">
+<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<a href="/latest/0">latest</a>
+<a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
+<section id="newslist"><article class="deleted">[deleted news]</article></section><div class="singlecomment">
+<article style="margin-left:0px" class="commented deleted">[comment deleted]</article>
+</div>
+<div class="commentreplies">
+<h2>Replies</h2>
+</div>
+<div id="comments">
+<article style="margin-left:0px" id="2-2" data-comment-id="2-2" class="comment"><span class="avatar"><img src="http://gravatar.com/avatar/d41d8cd98f00b204e9800998ecf8427e?s=48&amp;d=mm"></span><span class="info"><span class="username"><a href="/user/user2">user2</a></span> 3 seconds ago. <a href="/comment/2/2" class="reply">link</a>  1 points <a href="#up" class="uparrow">&#9650;</a> <a href="#down" class="downarrow">&#9660;</a></span><pre>a reply</pre></article>
+</div>
+</div>
+<footer><a href="http://github.com/beanz/camelnews">source code</a> | <a href="/rss">rss feed</a></footer><script>setKeyboardNavigation();</script>
+</div>
+</body>
+</html>
+~, '... content');
+
 };
 
 done_testing;
@@ -1652,6 +1688,41 @@ sub connections {
                       auth => '8efcd1255910e284f3963487ddab8f2804d8aff1',
                       apisecret => '7cf39f6cd309e18a97d8ff294851cc759ad81745',
                       flags => '', karma_incr_time => $ktime]] ],
+
+   # /comment/2/1
+   [ recvredis => [qw/hgetall news:2/] ],
+   [ sendredis => ['*' =>
+                   [ id => 2, title => 'Newish article',
+                     url => 'text://Another article (edited)', user_id => 1,
+                     ctime => $time, score => 1, rank => '0.0103062935463583',
+                     up => 2, down => 0, comments => 1, del => 1]] ],
+   [ recvredis => [qw/hget user:1 username/] ],
+   [ sendredis => ['$' => 'user1'] ],
+   [ recvredis => [qw/hget thread:comment:2 1/] ],
+   [ sendredis => ['$' => '{"ctime":'.$time.',"body":"comment","del":1,"down":[2],"up":[1],"user_id":"1","score":0,"parent_id":"-1"}'] ],
+   [ recvredis => [qw/hgetall user:1/] ],
+   [ sendredis => ['*' =>
+                   [ id => 1, username => 'user1',
+                     salt => 'ad7d8013b696a673afc2cc62fca39a1f866a88db',
+                     password => '041545cb3e79d60825623a3ab4875dc36e69a563',
+                     ctime => $time, karma => 2, about => '', email => '',
+                     auth => '3921b12ca2774e31672e331b965885513c95cbd3',
+                     apisecret => '258a110308de8951e453664572578f66b56797a6',
+                     flags => '', karma_incr_time => $ktime, replies => 1]] ],
+   [ recvredis => [qw/hgetall thread:comment:2/] ],
+   [ sendredis => ['*' =>
+                   [ nextid => 2,
+                     1 => '{"ctime":'.$time.',"body":"comment","del":1,"down":[2],"up":[1],"user_id":"1","score":0,"parent_id":"-1"}',
+                     2 => '{"ctime":'.$time.',"body":"a reply","up":[2],"user_id":"2","score":0,"parent_id":"1"}']] ],
+   [ recvredis => [qw/hgetall user:2/] ],
+   [ sendredis => ['*' =>
+                   [ id => 2, username => 'user2',
+                     salt => 'b609512b678a2d5a1517e86f37385ddb41560101',
+                     password => '17ec4f036696119addbd38585aeafa9a39b7f047',
+                     ctime => $time, karma => 0, about => '', email => '',
+                     auth => '7369f7ad27919bb46503577d994ede4bcbf136df',
+                     apisecret => '7c9fcc1479fe4220956d3a8f3bced9ae9e329f3b',
+                     flags => '', karma_incr_time => $ktime]] ],
    ]
   ]
 }
