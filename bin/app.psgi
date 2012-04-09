@@ -1344,7 +1344,7 @@ sub compute_news_score {
 # The general forumla is RANK = SCORE / (AGE ^ AGING_FACTOR)
 sub compute_news_rank {
   my ($news) = @_;
-  my $age = (time - $news->{'ctime'}) + $cfg->{NewsAgePadding};
+  my $age = time - $news->{'ctime'};
   return 0 if ($age > $cfg->{TopNewsAgeLimit});
   return ($news->{'score'}*1000000)
            / (($age+$cfg->{NewsAgePadding})**$cfg->{RankAgingFactor})
