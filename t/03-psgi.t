@@ -120,7 +120,7 @@ Top news - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <h2>Top news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
@@ -186,7 +186,7 @@ Latest news - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <h2>Latest news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
@@ -241,7 +241,7 @@ Test Article - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
@@ -309,7 +309,7 @@ user1 - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <div class="userinfo">
@@ -360,7 +360,7 @@ Login - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <div id="login">
@@ -415,7 +415,7 @@ Saved news - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Your saved news</h2><section id="newslist"><article data-news-id="1"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/1">Test Article</a></h2> <address> <a href="/editnews/1">[edit]</a></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/1">0 comments</a></p></article>
@@ -444,7 +444,7 @@ Your threads - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Your threads</h2><div id="comments">
@@ -473,7 +473,7 @@ Submit a new story - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>Submit a new story</h2><div id="submitform">
@@ -550,7 +550,7 @@ user1 comments - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <h2>user1 comments</h2><div id="comments">
@@ -580,7 +580,7 @@ Edit news - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user1">user1 (karma)</a> | <a href="/logout?apisecret=~.$apisecret.q~">logout</a></nav></header><div id="content">
 <article data-news-id="2"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/2">New article</a></h2> <address> <a href="/editnews/2">[edit]</a></address><a href="#down" class="downarrow disabled">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/2">1 comments</a></p></article>
@@ -667,7 +667,7 @@ Reply to comment - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user2">user2 (karma)</a> | <a href="/logout?apisecret=~.$apisecret2.q~">logout</a></nav></header><div id="content">
 <article data-news-id="2"><a href="#up" class="uparrow">&#9650;</a> <h2><a href="/news/2">Newish article</a></h2> <address></address><a href="#down" class="downarrow">&#9660;</a><p>1 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/2">1 comments</a></p></article>
@@ -738,7 +738,7 @@ Edit comment - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a><a href="/replies" class="replies">replies</a></nav> <nav id="account"><a href="/user/user2">user2 (karma)</a> | <a href="/logout?apisecret=~.$apisecret2.q~">logout</a></nav></header><div id="content">
 <article data-news-id="2"><a href="#up" class="uparrow voted">&#9650;</a> <h2><a href="/news/2">Newish article</a></h2> <address></address><a href="#down" class="downarrow disabled">&#9660;</a><p>2 up and 0 down, posted by <username><a href="/user/user1">user1</a></username> some time ago <a href="/news/2">2 comments</a></p></article>
@@ -798,7 +798,7 @@ Newish article - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <section id="newslist"><article class="deleted">[deleted news]</article></section><br>
@@ -834,7 +834,7 @@ Newish article - Lamer News
 </head>
 <body>
 <div class="container">
-<header><h1><a href="/">Lamer News</a> <small>0.9.2</small></h1><nav><a href="/">top</a>
+<header><h1><a href="/">Lamer News</a> <small>0.9.3</small></h1><nav><a href="/">top</a>
 <a href="/latest/0">latest</a>
 <a href="/submit">submit</a></nav> <nav id="account"><a href="/login">login / register</a></nav></header><div id="content">
 <section id="newslist"><article class="deleted">[deleted news]</article></section><div class="singlecomment">
@@ -1017,6 +1017,10 @@ sub connections {
                       url => 'text://some text', user_id => 1,
                       ctime => $time, score => 1, rank => '0.0103086555529132',
                       up => 1, down => 0, comments => 0 ]] ],
+    [ recvredis => [qw/hmset news:1 rank/, qr!^[\.0-9]+$!] ],
+    [ sendredis => '+OK' ],
+    [ recvredis => [qw/zadd news.top/, qr!^[\.0-9]+$!, '1'] ],
+    [ sendredis => ':1' ],
     [ recvredis => [qw/hget user:1 username/] ],
     [ sendredis => ['$' => 'user1'] ],
 
@@ -1034,6 +1038,10 @@ sub connections {
                       url => 'text://some text', user_id => 1,
                       ctime => $time, score => 1, rank => '0.0103086555529132',
                       up => 1, down => 0, comments => 0]] ],
+    [ recvredis => [qw/hmset news:1 rank/, qr!^[\.0-9]+$!] ],
+    [ sendredis => '+OK' ],
+    [ recvredis => [qw/zadd news.top/, qr!^[\.0-9]+$!, '1'] ],
+    [ sendredis => ':1' ],
     [ recvredis => [qw/hget user:1 username/] ],
     [ sendredis => ['$' => 'user1' ] ],
 
@@ -1050,6 +1058,10 @@ sub connections {
                       url => 'text://some text', user_id => 1,
                       ctime => $time, score => 1, rank => '0.0103086555529132',
                       up => 1, down => 0, comments => 0]] ],
+    [ recvredis => [qw/hmset news:1 rank/, qr!^[\.0-9]+$!] ],
+    [ sendredis => '+OK' ],
+    [ recvredis => [qw/zadd news.top/, qr!^[\.0-9]+$!, '1'] ],
+    [ sendredis => ':1' ],
     [ recvredis => [qw/hget user:1 username/] ],
     [ sendredis => ['$' => 'user1'] ],
 

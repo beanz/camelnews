@@ -43,16 +43,17 @@ my $cfg =
    PreventCreateUserTime => 3600*15,
 
    # News and ranking
-   NewsAgePadding => 60*60*8,
+   NewsAgePadding => 3600*8,
    TopNewsPerPage => 30,
    LatestNewsPerPage => 100,
    NewsEditTime => 60*15,
    NewsScoreLogStart => 10,
    NewsScoreLogBooster => 2,
-   RankAgingFactor => 1.1,
+   RankAgingFactor => 1.5,
    PreventRepostTime => 3600*48,
    NewsSubmissionBreak => 60*15,
    SavedNewsPerPage => 10,
+   TopNewsAgeLimit => 3600*48,
 
    # Footer links
    FooterTwitterLink => undef,

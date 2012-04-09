@@ -1345,7 +1345,9 @@ sub compute_news_score {
 sub compute_news_rank {
   my ($news) = @_;
   my $age = (time - $news->{'ctime'}) + $cfg->{NewsAgePadding};
-  return ($news->{'score'})/(($age+3600)**$cfg->{RankAgingFactor})
+  return 0 if ($age > $cfg->{TopNewsAgeLimit});
+  return ($news->{'score'}*1000000)
+           / (($age+$cfg->{NewsAgePadding})**$cfg->{RankAgingFactor})
 }
 
 # Add a news with the specified url or text.
@@ -1528,8 +1530,11 @@ sub news_to_html {
           $h->a(href => '/news/'.$news{'id'}, $news{'comments'}.' comments')
     ).
     ($req->param('debug') && $user && user_is_admin($user) ?
-     'score: '.$news->{'score'}.' old rank:'.$news->{'rank'}.
-     ' new rank:'.compute_news_rank($news) : '')
+     'id: '.$news{id}.' '.
+     'score: '.$news{'score'}.' '.
+     'rank: '.compute_news_rank(\%news).' '.
+     'zset_rank: '.$r->zscore('news.top', $news{'id'})
+     : '')
   )."\n"
 }
 
@@ -1560,7 +1565,8 @@ sub news_list_to_html {
 sub update_news_rank_if_needed {
   my ($n) = @_;
   my $real_rank = compute_news_rank($n);
-  if (abs($real_rank-$n->{'rank'}) > 0.001) {
+  my $delta_rank = abs($real_rank-$n->{'rank'});
+  if ($delta_rank > 0.000001) {
     $r->hmset('news:'.$n->{'id'}, 'rank', $real_rank);
     $r->zadd('news.top', $real_rank, $n->{'id'});
     $n->{'rank'} = $real_rank;
