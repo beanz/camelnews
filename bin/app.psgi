@@ -27,7 +27,7 @@ unless (caller) {
 
 my $cfgfile = $ENV{'CAMEL_NEWS_CONFIG'} // $root.'/etc/app_config.pl';
 my $cfg = do $cfgfile or die "Config file error: $@\n";
-our $VERSION = '0.9.2';
+our $VERSION = '0.9.3';
 
 our %ct =
   (
