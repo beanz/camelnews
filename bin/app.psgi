@@ -1345,9 +1345,11 @@ sub compute_news_score {
 sub compute_news_rank {
   my ($news) = @_;
   my $age = time - $news->{'ctime'};
-  return 0 if ($age > $cfg->{TopNewsAgeLimit});
-  return ($news->{'score'}*1000000)
-           / (($age+$cfg->{NewsAgePadding})**$cfg->{RankAgingFactor})
+  my $rank =
+    ($news->{'score'}*1000000)
+      / (($age+$cfg->{NewsAgePadding})**$cfg->{RankAgingFactor});
+  $rank = $rank - 1000 if ($age > $cfg->{TopNewsAgeLimit});
+  return $rank;
 }
 
 # Add a news with the specified url or text.
